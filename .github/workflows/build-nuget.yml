@@ -1,0 +1,105 @@
+name: Build and Publish NuGet
+
+on:
+  push:
+    branches:
+      - master
+      - feature/avalonia11-ime
+      - feature/avalonia12-ime
+      - bugfixes/enhancements
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+
+      - name: Determine package suffix
+        id: pkg
+        shell: bash
+        run: |
+          BRANCH="${{ github.ref_name }}"
+          case "$BRANCH" in
+            master)
+              echo "suffix=" >> $GITHUB_OUTPUT
+              echo "version_suffix=" >> $GITHUB_OUTPUT
+              ;;
+            feature/avalonia11-ime)
+              echo "suffix=.Avalonia11" >> $GITHUB_OUTPUT
+              echo "version_suffix=-avalonia11" >> $GITHUB_OUTPUT
+              ;;
+            feature/avalonia12-ime)
+              echo "suffix=.Avalonia12" >> $GITHUB_OUTPUT
+              echo "version_suffix=-avalonia12" >> $GITHUB_OUTPUT
+              ;;
+            bugfixes/enhancements)
+              echo "suffix=.Bugfixes" >> $GITHUB_OUTPUT
+              echo "version_suffix=-bugfixes" >> $GITHUB_OUTPUT
+              ;;
+            *)
+              SAFE=$(echo "$BRANCH" | tr '/' '-')
+              echo "suffix=.$SAFE" >> $GITHUB_OUTPUT
+              echo "version_suffix=-$SAFE" >> $GITHUB_OUTPUT
+              ;;
+          esac
+
+      - name: Restore
+        run: dotnet restore src/AvaloniaEdit/AvaloniaEdit.csproj
+
+      - name: Build
+        run: dotnet build src/AvaloniaEdit/AvaloniaEdit.csproj -c Release --no-restore
+
+      - name: Pack
+        run: >
+          dotnet pack src/AvaloniaEdit/AvaloniaEdit.csproj
+          -c Release --no-build -o ./nupkgs
+          -p:PackageId=Avalonia.AvaloniaEdit${{ steps.pkg.outputs.suffix }}
+          -p:VersionSuffix=${{ steps.pkg.outputs.version_suffix }}
+
+      - name: Upload NuGet package
+        uses: actions/upload-artifact@v4
+        with:
+          name: nupkg-${{ matrix.os }}-${{ github.ref_name }}
+          path: ./nupkgs/*.nupkg
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Sanitize branch name
+        id: sanitize
+        shell: bash
+        run: echo "branch=$(echo '${{ github.ref_name }}' | tr '/' '-')" >> $GITHUB_OUTPUT
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: nupkg-*-${{ steps.sanitize.outputs.branch }}
+          merge-multiple: true
+          path: ./nupkgs
+
+      - name: List packages
+        run: ls -la ./nupkgs/
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.sanitize.outputs.branch }}-v${{ github.run_number }}
+          name: ${{ github.ref_name }} Build ${{ github.run_number }}
+          files: ./nupkgs/*.nupkg
+          generate_release_notes: true
