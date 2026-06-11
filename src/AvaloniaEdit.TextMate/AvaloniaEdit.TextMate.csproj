@@ -1,0 +1,21 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFrameworks>netstandard2.0;net6.0</TargetFrameworks>
+    <LangVersion>latest</LangVersion>
+    <PackageId>AvaloniaEdit.RichTextInput.TextMate</PackageId>
+    <PackageDescription>TextMate integration for the AvaloniaEdit.RichTextInput distribution.</PackageDescription>
+    <PackageTags>editor;code-editor;avalonia;text-editor;textmate;syntax-highlighting;rich-text-input</PackageTags>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\AvaloniaEdit\AvaloniaEdit.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia" Version="$(AvaloniaVersion)" />
+    <PackageReference Include="TextMateSharp" Version="$(TextMateSharpVersion)" />
+    <PackageReference Include="TextMateSharp.Grammars" Version="$(TextMateSharpVersion)" />
+  </ItemGroup>
+
+</Project>
