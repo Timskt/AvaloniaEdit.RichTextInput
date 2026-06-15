@@ -1305,6 +1305,13 @@ namespace AvaloniaEdit.Rendering
                     var offset = 0;
                     foreach (var textLine in visualLine.TextLines)
                     {
+                        var textHeight = textLine.Height;
+                        var lineHeight = Math.Max(textHeight, defaultLineHeight);
+                        var textOffset = VisualLine.GetTextLineContentOffset(
+                            Options.LineContentVerticalAlignment,
+                            lineHeight,
+                            textHeight);
+
                         foreach (var span in textLine.TextRuns)
                         {
                             var inline = span as InlineObjectRun;
@@ -1315,7 +1322,7 @@ namespace AvaloniaEdit.Rendering
 
                                 var desiredSize = inline.Element.DesiredSize;
                                 var x = pos.X + textLine.GetDistanceFromCharacterHit(new CharacterHit(offset));
-                                var y = pos.Y + textLine.Baseline - inline.Baseline;
+                                var y = pos.Y + textOffset + textLine.Baseline - inline.Baseline;
                                 var width = desiredSize.Width;
                                 var height = desiredSize.Height;
                                 ArrangeInlineObject(inline.Element, new Rect(x, y, width, height), animateInlineObjectPlacement);
@@ -1324,7 +1331,6 @@ namespace AvaloniaEdit.Rendering
                             offset += span.Length;
                         }
 
-                        var lineHeight = Math.Max(textLine.Height, defaultLineHeight);
                         pos = new Point(pos.X, pos.Y + lineHeight);
                     }
                 }
