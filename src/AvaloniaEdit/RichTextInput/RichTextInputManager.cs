@@ -836,6 +836,10 @@ namespace AvaloniaEdit.RichTextInput
 
         public Func<RichTextContentItem, InlineObjectVerticalAlignment> InlineObjectAlignmentSelector { get; set; }
 
+        public Func<RichTextContentItem, double> InlineObjectBaselineOffsetSelector { get; set; }
+
+        public Func<RichTextContentItem, Vector> InlineObjectArrangeOffsetSelector { get; set; }
+
         public LineContentVerticalAlignment LineContentAlignment
         {
             get => _textArea.Options.LineContentVerticalAlignment;
@@ -1236,6 +1240,20 @@ namespace AvaloniaEdit.RichTextInput
         public InlineObjectVerticalAlignment GetInlineObjectAlignment(RichTextContentItem item)
         {
             return InlineObjectAlignmentSelector?.Invoke(item) ?? InlineObjectAlignment;
+        }
+
+        public double GetInlineObjectBaselineOffset(RichTextContentItem item)
+        {
+            var offset = InlineObjectBaselineOffsetSelector?.Invoke(item) ?? 0;
+            return double.IsNaN(offset) || double.IsInfinity(offset) ? 0 : offset;
+        }
+
+        public Vector GetInlineObjectArrangeOffset(RichTextContentItem item)
+        {
+            var offset = InlineObjectArrangeOffsetSelector?.Invoke(item) ?? default;
+            return double.IsNaN(offset.X) || double.IsInfinity(offset.X) || double.IsNaN(offset.Y) || double.IsInfinity(offset.Y)
+                ? default
+                : offset;
         }
 
         public RichTextInlineContentStyle GetInlineContentStyle(RichTextContentItem item, bool selected)
@@ -3540,7 +3558,12 @@ namespace AvaloniaEdit.RichTextInput
         public override VisualLineElement ConstructElement(int offset)
         {
             return _manager.TryGetItem(offset, out var item)
-                ? new InlineObjectElement(RichTextInputManager.ObjectReplacementString.Length, _manager.CreateElement(item), _manager.GetInlineObjectAlignment(item))
+                ? new InlineObjectElement(
+                    RichTextInputManager.ObjectReplacementString.Length,
+                    _manager.CreateElement(item),
+                    _manager.GetInlineObjectAlignment(item),
+                    _manager.GetInlineObjectBaselineOffset(item),
+                    _manager.GetInlineObjectArrangeOffset(item))
                 : null;
         }
     }

@@ -577,6 +577,22 @@ namespace AvaloniaEdit.Tests.RichTextInput
         }
 
         [AvaloniaTest]
+        public void RichTextInputAllowsPerItemInlineObjectLayoutOffsets()
+        {
+            var textArea = CreateTextArea("");
+            var manager = RichTextInputManager.Install(textArea);
+            var card = manager.InsertCustom("card", 1);
+            var image = manager.InsertCustom("image", 2);
+            manager.InlineObjectBaselineOffsetSelector = item => item == card ? 2 : double.NaN;
+            manager.InlineObjectArrangeOffsetSelector = item => item == card ? new Vector(1, -2) : new Vector(double.PositiveInfinity, 0);
+
+            Assert.AreEqual(2, manager.GetInlineObjectBaselineOffset(card));
+            Assert.AreEqual(new Vector(1, -2), manager.GetInlineObjectArrangeOffset(card));
+            Assert.AreEqual(0, manager.GetInlineObjectBaselineOffset(image));
+            Assert.AreEqual(default(Vector), manager.GetInlineObjectArrangeOffset(image));
+        }
+
+        [AvaloniaTest]
         public void InlineContentStyleSelectorCanCustomizeSelectionVisuals()
         {
             var textArea = CreateTextArea("");

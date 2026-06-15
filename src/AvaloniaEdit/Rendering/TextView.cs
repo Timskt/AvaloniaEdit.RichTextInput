@@ -1323,9 +1323,17 @@ namespace AvaloniaEdit.Rendering
                                 var desiredSize = inline.Element.DesiredSize;
                                 var x = pos.X + textLine.GetDistanceFromCharacterHit(new CharacterHit(offset));
                                 var y = pos.Y + textOffset + textLine.Baseline - inline.Baseline;
+                                if (desiredSize.Height <= lineHeight)
+                                    y = Math.Max(pos.Y, Math.Min(y, pos.Y + lineHeight - desiredSize.Height));
+                                else
+                                    y = pos.Y;
+                                var arrangeOffset = inline.ArrangeOffset;
                                 var width = desiredSize.Width;
                                 var height = desiredSize.Height;
-                                ArrangeInlineObject(inline.Element, new Rect(x, y, width, height), animateInlineObjectPlacement);
+                                ArrangeInlineObject(
+                                    inline.Element,
+                                    new Rect(x + arrangeOffset.X, y + arrangeOffset.Y, width, height),
+                                    animateInlineObjectPlacement);
                             }
 
                             offset += span.Length;

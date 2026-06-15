@@ -189,17 +189,133 @@ namespace AvaloniaEdit.Tests.Rendering
             Assert.Greater(inlineControl.Bounds.Y, 0);
         }
 
+        [AvaloniaTest]
+        public void Inline_Object_Layout_Remains_Inside_First_Line_For_Font_And_Alignment_Matrix()
+        {
+            var fontSizes = new[] { 12d, 16d, 20d };
+            var lineHeightFactors = new[] { 1d, 1.16d, 1.5d };
+            var lineAlignments = new[]
+            {
+                LineContentVerticalAlignment.Top,
+                LineContentVerticalAlignment.Center,
+                LineContentVerticalAlignment.Bottom
+            };
+            var objectAlignments = new[]
+            {
+                InlineObjectVerticalAlignment.Top,
+                InlineObjectVerticalAlignment.Center,
+                InlineObjectVerticalAlignment.Bottom
+            };
+            var objectHeights = new[] { 10d, 24d, 48d };
+
+            foreach (var fontSize in fontSizes)
+            foreach (var lineHeightFactor in lineHeightFactors)
+            foreach (var lineAlignment in lineAlignments)
+            foreach (var objectAlignment in objectAlignments)
+            foreach (var objectHeight in objectHeights)
+            {
+                var inlineControl = new Border
+                {
+                    Width = 16,
+                    Height = objectHeight
+                };
+                var textView = new TextView
+                {
+                    Document = new TextDocument("text \ufffc"),
+                    Width = 300,
+                    Height = 160,
+                    FontSize = fontSize
+                };
+                textView.Options.LineHeightFactor = lineHeightFactor;
+                textView.Options.LineContentVerticalAlignment = lineAlignment;
+                textView.ElementGenerators.Add(new InlineObjectTestGenerator(5, inlineControl, objectAlignment));
+
+                textView.Measure(new Size(300, 160));
+                textView.Arrange(new Rect(0, 0, 300, 160));
+
+                var visualLine = textView.GetOrConstructVisualLine(textView.Document.Lines[0]);
+                Assert.GreaterOrEqual(
+                    inlineControl.Bounds.Y,
+                    -0.001,
+                    $"font={fontSize}, factor={lineHeightFactor}, line={lineAlignment}, object={objectAlignment}, height={objectHeight}");
+                Assert.LessOrEqual(
+                    inlineControl.Bounds.Bottom,
+                    visualLine.Height + 0.501,
+                    $"font={fontSize}, factor={lineHeightFactor}, line={lineAlignment}, object={objectAlignment}, height={objectHeight}");
+            }
+        }
+
+        [AvaloniaTest]
+        public void Inline_Object_Baseline_And_Arrange_Offsets_Are_Applied()
+        {
+            var baselineControl = new Border { Width = 8, Height = 8 };
+            var arrangedControl = new Border { Width = 8, Height = 8 };
+            var baselineTextView = CreateOffsetTextView(baselineControl, 4, default);
+            var arrangedTextView = CreateOffsetTextView(arrangedControl, 0, new Vector(3, 5));
+
+            baselineTextView.Measure(new Size(200, 80));
+            baselineTextView.Arrange(new Rect(0, 0, 200, 80));
+            arrangedTextView.Measure(new Size(200, 80));
+            arrangedTextView.Arrange(new Rect(0, 0, 200, 80));
+
+            var baselineRun = baselineTextView
+                .GetOrConstructVisualLine(baselineTextView.Document.Lines[0])
+                .TextLines[0]
+                .TextRuns
+                .OfType<InlineObjectRun>()
+                .Single();
+            var arrangedRun = arrangedTextView
+                .GetOrConstructVisualLine(arrangedTextView.Document.Lines[0])
+                .TextLines[0]
+                .TextRuns
+                .OfType<InlineObjectRun>()
+                .Single();
+
+            Assert.AreEqual(4, baselineRun.BaselineOffset);
+            Assert.AreEqual(new Vector(3, 5), arrangedRun.ArrangeOffset);
+            Assert.AreEqual(new Vector(3, 5).X, arrangedControl.Bounds.X - baselineControl.Bounds.X, 0.501);
+            Assert.Greater(arrangedControl.Bounds.Y, baselineControl.Bounds.Y);
+        }
+
+        private static TextView CreateOffsetTextView(Control inlineControl, double baselineOffset, Vector arrangeOffset)
+        {
+            var textView = new TextView
+            {
+                Document = new TextDocument("a\ufffc"),
+                Width = 200,
+                Height = 80
+            };
+            textView.Options.LineHeightFactor = 2;
+            textView.Options.LineContentVerticalAlignment = LineContentVerticalAlignment.Bottom;
+            textView.ElementGenerators.Add(new InlineObjectTestGenerator(
+                1,
+                inlineControl,
+                InlineObjectVerticalAlignment.Bottom,
+                baselineOffset,
+                arrangeOffset));
+            return textView;
+        }
+
         private sealed class InlineObjectTestGenerator : VisualLineElementGenerator
         {
             private readonly int _offset;
             private readonly Control _control;
             private readonly InlineObjectVerticalAlignment _alignment;
+            private readonly double _baselineOffset;
+            private readonly Vector _arrangeOffset;
 
-            public InlineObjectTestGenerator(int offset, Control control, InlineObjectVerticalAlignment alignment)
+            public InlineObjectTestGenerator(
+                int offset,
+                Control control,
+                InlineObjectVerticalAlignment alignment,
+                double baselineOffset = 0,
+                Vector arrangeOffset = default)
             {
                 _offset = offset;
                 _control = control;
                 _alignment = alignment;
+                _baselineOffset = baselineOffset;
+                _arrangeOffset = arrangeOffset;
             }
 
             public override int GetFirstInterestedOffset(int startOffset)
@@ -210,7 +326,7 @@ namespace AvaloniaEdit.Tests.Rendering
             public override VisualLineElement ConstructElement(int offset)
             {
                 return offset == _offset
-                    ? new InlineObjectElement(1, _control, _alignment)
+                    ? new InlineObjectElement(1, _control, _alignment, _baselineOffset, _arrangeOffset)
                     : null;
             }
         }

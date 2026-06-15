@@ -30,6 +30,7 @@
             <ComboBox Name="LineContentAlignmentCombo" Width="110" VerticalAlignment="Stretch" VerticalContentAlignment="Center"/>
             <ComboBox Name="RichContentAlignmentCombo" Width="110" VerticalAlignment="Stretch" VerticalContentAlignment="Center"/>
             <Button Name="ShowRichPlainTextBtn" Content="Plain Text" VerticalAlignment="Stretch" VerticalContentAlignment="Center"/>
+            <Button Name="InspectClipboardBtn" Content="Clipboard" VerticalAlignment="Stretch" VerticalContentAlignment="Center"/>
             <ComboBox Name="SyntaxModeCombo" VerticalAlignment="Stretch" VerticalContentAlignment="Center"/>
             <DropDownButton Content="Change theme" VerticalAlignment="Stretch" VerticalContentAlignment="Center">
                 <Button.Flyout>

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 using Avalonia;
@@ -67,6 +68,7 @@ namespace AvaloniaEdit.Demo
             InsertEmojiBtn.Click += InsertEmojiButton_Click;
             InsertFileCardBtn.Click += InsertFileCardButton_Click;
             ShowRichPlainTextBtn.Click += ShowRichPlainTextButton_Click;
+            InspectClipboardBtn.Click += InspectClipboardButton_Click;
             InsertSnippetBtn.Click += InsertSnippetButton_Click;
 
             Editor.TextArea.TextView.ElementGenerators.Add(_generator);
@@ -557,6 +559,65 @@ namespace AvaloniaEdit.Demo
 
             context.InsertText(text);
             Avalonia.Threading.Dispatcher.UIThread.Post(UpdateMentionTriggerStatus);
+        }
+
+        private async void InspectClipboardButton_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
+                if (clipboard == null)
+                {
+                    StatusText.Text = "Clipboard unavailable";
+                    return;
+                }
+
+                var dataTransfer = await clipboard.TryGetDataAsync();
+                if (dataTransfer == null)
+                {
+                    StatusText.Text = "Clipboard empty or unreadable";
+                    return;
+                }
+
+                var formats = (dataTransfer.Formats ?? Enumerable.Empty<DataFormat>())
+                    .Select(format => format.Identifier)
+                    .Where(identifier => !string.IsNullOrWhiteSpace(identifier))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .OrderBy(identifier => identifier, StringComparer.OrdinalIgnoreCase)
+                    .ToArray();
+                var hasText = dataTransfer.Contains(DataFormat.Text);
+                var hasBitmap = dataTransfer.Contains(DataFormat.Bitmap)
+                    || formats.Any(IsKnownBitmapClipboardFormat);
+                var hasFiles = dataTransfer.Contains(DataFormat.File);
+                var hasRich = dataTransfer.Contains(RichTextInputManager.RichTextClipboardFormat);
+                var text = hasText ? await dataTransfer.TryGetTextAsync() : null;
+                var textLength = text?.Length ?? 0;
+                var formatPreview = formats.Length == 0
+                    ? "(none)"
+                    : string.Join(", ", formats.Take(12));
+                if (formats.Length > 12)
+                    formatPreview += $", +{formats.Length - 12} more";
+
+                StatusText.Text =
+                    $"Clipboard text={hasText}({textLength}) bitmap={hasBitmap} files={hasFiles} rich={hasRich}; formats[{formats.Length}]: {formatPreview}";
+            }
+            catch (Exception ex)
+            {
+                StatusText.Text = $"Clipboard inspect failed: {ex.GetType().Name}: {ex.Message}";
+            }
+        }
+
+        private static bool IsKnownBitmapClipboardFormat(string identifier)
+        {
+            return string.Equals(identifier, "CF_DIB", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(identifier, "CF_DIBV5", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(identifier, "Format17", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(identifier, "DeviceIndependentBitmap", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(identifier, "BMP ", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(identifier, "public.tiff", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(identifier, "NeXT TIFF v4.0 pasteboard type", StringComparison.OrdinalIgnoreCase)
+                || identifier.IndexOf("bitmap", StringComparison.OrdinalIgnoreCase) >= 0
+                || identifier.IndexOf("image", StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         private void UpdateMentionTriggerStatus()

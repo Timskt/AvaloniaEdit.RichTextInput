@@ -57,11 +57,27 @@ namespace AvaloniaEdit.Rendering
 		}
 
 		public InlineObjectElement(int documentLength, Control element, InlineObjectVerticalAlignment verticalAlignment)
+			: this(documentLength, element, verticalAlignment, 0, default)
+		{
+		}
+
+		public InlineObjectElement(
+			int documentLength,
+			Control element,
+			InlineObjectVerticalAlignment verticalAlignment,
+			double baselineOffset,
+			Vector arrangeOffset)
 			: base(1, documentLength)
 		{
 			Element = element ?? throw new ArgumentNullException(nameof(element));
 			VerticalAlignment = verticalAlignment;
+			BaselineOffset = baselineOffset;
+			ArrangeOffset = arrangeOffset;
 		}
+
+		public double BaselineOffset { get; }
+
+		public Vector ArrangeOffset { get; }
 
 		/// <inheritdoc/>
 		public override TextRun CreateTextRun(int startVisualColumn, ITextRunConstructionContext context)
@@ -69,7 +85,7 @@ namespace AvaloniaEdit.Rendering
 			if (context == null)
 				throw new ArgumentNullException(nameof(context));
 
-			return new InlineObjectRun(1, TextRunProperties, Element, VerticalAlignment);
+			return new InlineObjectRun(1, TextRunProperties, Element, VerticalAlignment, BaselineOffset, ArrangeOffset);
 		}
 	}
 
@@ -92,6 +108,17 @@ namespace AvaloniaEdit.Rendering
 		}
 
 		public InlineObjectRun(int length, TextRunProperties? properties, Control element, InlineObjectVerticalAlignment verticalAlignment)
+			: this(length, properties, element, verticalAlignment, 0, default)
+		{
+		}
+
+		public InlineObjectRun(
+			int length,
+			TextRunProperties? properties,
+			Control element,
+			InlineObjectVerticalAlignment verticalAlignment,
+			double baselineOffset,
+			Vector arrangeOffset)
 		{
 			if (length <= 0)
 				throw new ArgumentOutOfRangeException(nameof(length), length, "Value must be positive");
@@ -100,6 +127,8 @@ namespace AvaloniaEdit.Rendering
 			Properties = properties ?? throw new ArgumentNullException(nameof(properties));
 			Element = element ?? throw new ArgumentNullException(nameof(element));
 			VerticalAlignment = verticalAlignment;
+			BaselineOffset = baselineOffset;
+			ArrangeOffset = arrangeOffset;
 
 			DesiredSize = element.DesiredSize;
 		}
@@ -110,6 +139,10 @@ namespace AvaloniaEdit.Rendering
 		public Control Element { get; }
 
 		public InlineObjectVerticalAlignment VerticalAlignment { get; }
+
+		public double BaselineOffset { get; }
+
+		public Vector ArrangeOffset { get; }
 
 		/// <summary>
 		/// Gets the VisualLine that contains this object. This property is only available after the object
@@ -127,16 +160,17 @@ namespace AvaloniaEdit.Rendering
 			{
 				var properties = Properties;
 				if (ReferenceEquals(properties, null))
-					return GetElementBaseline();
+					return Math.Max(0, GetElementBaseline() + BaselineOffset);
 
 				var textBaseline = properties.FontRenderingEmSize * 0.8;
-				return VerticalAlignment switch
+				var baseline = VerticalAlignment switch
 				{
 					InlineObjectVerticalAlignment.Top => textBaseline,
 					InlineObjectVerticalAlignment.Center => Math.Max(0, textBaseline - properties.FontRenderingEmSize / 2 + DesiredSize.Height / 2),
 					InlineObjectVerticalAlignment.Bottom => Math.Max(0, textBaseline - properties.FontRenderingEmSize + DesiredSize.Height),
 					_ => GetElementBaseline()
 				};
+				return Math.Max(0, baseline + BaselineOffset);
 			}
 		}
 
