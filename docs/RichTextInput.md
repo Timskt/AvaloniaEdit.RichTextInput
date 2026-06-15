@@ -106,6 +106,24 @@ richInput.InlineObjectAlignmentSelector = item =>
         : InlineObjectVerticalAlignment.Center;
 ```
 
+需要做更细的视觉微调时，可以按 item 设置 baseline 或最终排列偏移：
+
+```csharp
+// 影响 TextFormatter 的 inline 对象 baseline 和行高计算。
+// 正数会增大对象 baseline，通常会让对象视觉上移。
+richInput.InlineObjectBaselineOffsetSelector = item =>
+    item.Content.StyleKey == "compact-card" ? 1 : 0;
+
+// 只影响最终控件位置，不改变行高。适合做 1-2px 的视觉微调。
+// 正 X 向右，正 Y 向下。
+richInput.InlineObjectArrangeOffsetSelector = item =>
+    item.Content.Kind == RichTextContentKind.Image
+        ? new Vector(0, 1)
+        : default;
+```
+
+如果 selector 返回 `NaN` 或无限值，组件会自动按 `0/default` 处理，避免异常业务数据把编辑器布局带崩。
+
 IME 确认、删除文字、插入图片时，同一行的图片/卡片位置可能会变化。需要更接近聊天输入框的顺滑体验时，可以打开 inline object 位置过渡：
 
 ```csharp
@@ -722,6 +740,8 @@ messageRich.SetValue(value);
 // 每张内存图片最多嵌入 4 MB，设置为 0 可关闭嵌入。
 richInput.MaxEmbeddedClipboardImageBytes = 4 * 1024 * 1024;
 ```
+
+Demo 顶部工具栏的 `Clipboard` 按钮可以诊断当前剪贴板格式，会显示是否包含文本、图片、文件、富内容格式，以及平台格式名列表。排查 Windows 截图工具、QQ/微信/浏览器复制图片、多文件复制粘贴时，优先看这里能否看到 `CF_DIB`、`CF_DIBV5`、`Format17`、`public.tiff`、`DataFormat.File` 或 `AvaloniaEdit.RichTextInput`。
 
 超过上限或无法编码的内存图片仍会保留 `RichTextContentKind.Image` 和占位符，但默认渲染没有 Bitmap 时只能显示为图片项的降级样式。需要跨进程稳定恢复时，建议给图片内容提供可读的 `Source`，或者在业务协议里自己存储缩略图/资源 ID。
 

@@ -29,6 +29,7 @@
             <Button Name="insertFileCardBtn" Content="Insert File Card" VerticalAlignment="Stretch" VerticalContentAlignment="Center"/>
             <ComboBox Name="lineContentAlignmentCombo" Width="110" VerticalAlignment="Stretch" VerticalContentAlignment="Center"/>
             <ComboBox Name="richContentAlignmentCombo" Width="110" VerticalAlignment="Stretch" VerticalContentAlignment="Center"/>
+            <Button Name="inspectClipboardBtn" Content="Clipboard" VerticalAlignment="Stretch" VerticalContentAlignment="Center"/>
             <ComboBox Name="syntaxModeCombo" VerticalAlignment="Stretch" VerticalContentAlignment="Center"/>
             <DropDownButton Content="Change theme" VerticalAlignment="Stretch" VerticalContentAlignment="Center">
                 <Button.Flyout>

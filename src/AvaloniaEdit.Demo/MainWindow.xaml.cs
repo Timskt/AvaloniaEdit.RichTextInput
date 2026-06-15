@@ -41,6 +41,7 @@ namespace AvaloniaEdit.Demo
         private Button _insertEmojiButton;
         private Button _insertFileCardButton;
         private Button _insertSnippetButton;
+        private Button _inspectClipboardButton;
         private ComboBox _syntaxModeCombo;
         private ComboBox _lineContentAlignmentCombo;
         private ComboBox _richContentAlignmentCombo;
@@ -92,6 +93,9 @@ namespace AvaloniaEdit.Demo
 
             _insertSnippetButton = this.FindControl<Button>("insertSnippetBtn");
             _insertSnippetButton.Click += InsertSnippetButton_Click;
+
+            _inspectClipboardButton = this.FindControl<Button>("inspectClipboardBtn");
+            _inspectClipboardButton.Click += InspectClipboardButton_Click;
 
             _textEditor.TextArea.TextView.ElementGenerators.Add(_generator);
             _textEditor.TextArea.TextView.AnimateInlineObjectPlacement = true;
@@ -594,6 +598,56 @@ namespace AvaloniaEdit.Demo
             context.InsertText(text);
             Avalonia.Threading.Dispatcher.UIThread.Post(UpdateMentionTriggerStatus);
             return Task.CompletedTask;
+        }
+
+        private async void InspectClipboardButton_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
+                if (clipboard == null)
+                {
+                    _statusTextBlock.Text = "Clipboard unavailable";
+                    return;
+                }
+
+                var formats = (await clipboard.GetFormatsAsync() ?? Array.Empty<string>())
+                    .Where(format => !string.IsNullOrWhiteSpace(format))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .OrderBy(format => format, StringComparer.OrdinalIgnoreCase)
+                    .ToArray();
+                var text = await clipboard.GetTextAsync();
+                var hasText = text != null || formats.Contains(DataFormats.Text, StringComparer.OrdinalIgnoreCase);
+                var hasBitmap = formats.Any(IsKnownBitmapClipboardFormat);
+                var hasFiles = formats.Contains(DataFormats.Files, StringComparer.OrdinalIgnoreCase)
+                    || formats.Contains(DataFormats.FileNames, StringComparer.OrdinalIgnoreCase);
+                var hasRich = formats.Contains(RichTextInputManager.RichTextClipboardFormat, StringComparer.OrdinalIgnoreCase);
+                var formatPreview = formats.Length == 0
+                    ? "(none)"
+                    : string.Join(", ", formats.Take(12));
+                if (formats.Length > 12)
+                    formatPreview += $", +{formats.Length - 12} more";
+
+                _statusTextBlock.Text =
+                    $"Clipboard text={hasText}({text?.Length ?? 0}) bitmap={hasBitmap} files={hasFiles} rich={hasRich}; formats[{formats.Length}]: {formatPreview}";
+            }
+            catch (Exception ex)
+            {
+                _statusTextBlock.Text = $"Clipboard inspect failed: {ex.GetType().Name}: {ex.Message}";
+            }
+        }
+
+        private static bool IsKnownBitmapClipboardFormat(string identifier)
+        {
+            return string.Equals(identifier, "CF_DIB", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(identifier, "CF_DIBV5", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(identifier, "Format17", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(identifier, "DeviceIndependentBitmap", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(identifier, "BMP ", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(identifier, "public.tiff", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(identifier, "NeXT TIFF v4.0 pasteboard type", StringComparison.OrdinalIgnoreCase)
+                || identifier.IndexOf("bitmap", StringComparison.OrdinalIgnoreCase) >= 0
+                || identifier.IndexOf("image", StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         private void UpdateMentionTriggerStatus()
