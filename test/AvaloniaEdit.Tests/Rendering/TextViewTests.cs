@@ -1,7 +1,9 @@
 ﻿using Avalonia;
+using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Headless.NUnit;
 using Avalonia.Media;
+using Avalonia.Media.TextFormatting;
 using AvaloniaEdit.Document;
 using AvaloniaEdit.Rendering;
 using System;
@@ -152,6 +154,65 @@ namespace AvaloniaEdit.Tests.Rendering
             Assert.AreEqual(new Thickness(1), style.Margin);
             Assert.IsFalse(style.ExtendToViewportWidth);
             Assert.AreEqual(40, style.MinWidth);
+        }
+
+        [AvaloniaTest]
+        public void Inline_Object_Arrange_Uses_Line_Content_Alignment_Offset()
+        {
+            var inlineControl = new Border
+            {
+                Width = 8,
+                Height = 8
+            };
+            var textView = new TextView
+            {
+                Document = new TextDocument("a\ufffc"),
+                Width = 200,
+                Height = 80
+            };
+            textView.Options.LineHeightFactor = 2;
+            textView.Options.LineContentVerticalAlignment = LineContentVerticalAlignment.Bottom;
+            textView.ElementGenerators.Add(new InlineObjectTestGenerator(1, inlineControl, InlineObjectVerticalAlignment.Bottom));
+
+            textView.Measure(new Size(200, 80));
+            textView.Arrange(new Rect(0, 0, 200, 80));
+
+            var visualLine = textView.GetOrConstructVisualLine(textView.Document.Lines[0]);
+            var textLine = visualLine.TextLines[0];
+            var inlineRun = textLine.TextRuns.OfType<InlineObjectRun>().Single();
+            var lineHeight = Math.Max(textLine.Height, textView.DefaultLineHeight);
+            var textOffset = Math.Max(0, lineHeight - textLine.Height);
+            var unalignedY = textLine.Baseline - inlineRun.Baseline;
+
+            Assert.Greater(textOffset, 0);
+            Assert.Greater(inlineControl.Bounds.Y, unalignedY + textOffset / 2);
+            Assert.Greater(inlineControl.Bounds.Y, 0);
+        }
+
+        private sealed class InlineObjectTestGenerator : VisualLineElementGenerator
+        {
+            private readonly int _offset;
+            private readonly Control _control;
+            private readonly InlineObjectVerticalAlignment _alignment;
+
+            public InlineObjectTestGenerator(int offset, Control control, InlineObjectVerticalAlignment alignment)
+            {
+                _offset = offset;
+                _control = control;
+                _alignment = alignment;
+            }
+
+            public override int GetFirstInterestedOffset(int startOffset)
+            {
+                return startOffset <= _offset ? _offset : -1;
+            }
+
+            public override VisualLineElement ConstructElement(int offset)
+            {
+                return offset == _offset
+                    ? new InlineObjectElement(1, _control, _alignment)
+                    : null;
+            }
         }
     }
 }
