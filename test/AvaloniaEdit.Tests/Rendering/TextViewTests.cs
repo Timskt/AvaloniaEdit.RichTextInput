@@ -246,6 +246,51 @@ namespace AvaloniaEdit.Tests.Rendering
         }
 
         [AvaloniaTest]
+        public void Inline_Object_Baseline_Remains_Text_Aligned_When_Tall_Sibling_Expands_Line()
+        {
+            var tallControl = new Border
+            {
+                Width = 40,
+                Height = 80
+            };
+            var smallControl = new Border
+            {
+                Width = 16,
+                Height = 12
+            };
+            var textView = new TextView
+            {
+                Document = new TextDocument("a\ufffcb\ufffc"),
+                Width = 300,
+                Height = 160,
+                FontSize = 16
+            };
+            textView.Options.LineContentVerticalAlignment = LineContentVerticalAlignment.Bottom;
+            textView.ElementGenerators.Add(new MultipleInlineObjectTestGenerator(
+                new InlineObjectTestEntry(1, tallControl, InlineObjectVerticalAlignment.Bottom),
+                new InlineObjectTestEntry(3, smallControl, InlineObjectVerticalAlignment.Baseline)));
+
+            textView.Measure(new Size(300, 160));
+            textView.Arrange(new Rect(0, 0, 300, 160));
+
+            var visualLine = textView.GetOrConstructVisualLine(textView.Document.Lines[0]);
+            var textLine = visualLine.TextLines[0];
+            var runs = textLine.TextRuns.OfType<InlineObjectRun>().ToArray();
+            var smallRun = runs.Single(run => ReferenceEquals(run.Element, smallControl));
+            var lineHeight = Math.Max(textLine.Height, textView.DefaultLineHeight);
+            var textOffset = Math.Max(0, lineHeight - textLine.Height);
+            var expectedBaselineY = textOffset + textLine.Baseline - smallRun.Baseline;
+            expectedBaselineY = Math.Max(0, Math.Min(expectedBaselineY, lineHeight - smallControl.DesiredSize.Height));
+            var centeredY = Math.Max(0, (lineHeight - smallControl.DesiredSize.Height) / 2);
+
+            Assert.AreEqual(expectedBaselineY, smallControl.Bounds.Y, 0.501);
+            Assert.Greater(
+                Math.Abs(smallControl.Bounds.Y - centeredY),
+                1,
+                "A baseline-aligned small control must not be centered by a tall inline sibling.");
+        }
+
+        [AvaloniaTest]
         public void Inline_Object_Baseline_And_Arrange_Offsets_Are_Applied()
         {
             var baselineControl = new Border { Width = 8, Height = 8 };
@@ -294,6 +339,53 @@ namespace AvaloniaEdit.Tests.Rendering
                 baselineOffset,
                 arrangeOffset));
             return textView;
+        }
+
+        private sealed class MultipleInlineObjectTestGenerator : VisualLineElementGenerator
+        {
+            private readonly InlineObjectTestEntry[] _entries;
+
+            public MultipleInlineObjectTestGenerator(params InlineObjectTestEntry[] entries)
+            {
+                _entries = entries;
+            }
+
+            public override int GetFirstInterestedOffset(int startOffset)
+            {
+                var nextOffset = -1;
+                foreach (var entry in _entries)
+                {
+                    if (entry.Offset >= startOffset && (nextOffset < 0 || entry.Offset < nextOffset))
+                        nextOffset = entry.Offset;
+                }
+
+                return nextOffset;
+            }
+
+            public override VisualLineElement ConstructElement(int offset)
+            {
+                foreach (var entry in _entries)
+                {
+                    if (entry.Offset == offset)
+                        return new InlineObjectElement(1, entry.Control, entry.Alignment);
+                }
+
+                return null;
+            }
+        }
+
+        private sealed class InlineObjectTestEntry
+        {
+            public InlineObjectTestEntry(int offset, Control control, InlineObjectVerticalAlignment alignment)
+            {
+                Offset = offset;
+                Control = control;
+                Alignment = alignment;
+            }
+
+            public int Offset { get; }
+            public Control Control { get; }
+            public InlineObjectVerticalAlignment Alignment { get; }
         }
 
         private sealed class InlineObjectTestGenerator : VisualLineElementGenerator

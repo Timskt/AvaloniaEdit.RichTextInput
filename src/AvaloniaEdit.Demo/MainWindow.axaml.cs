@@ -25,15 +25,13 @@ using Snippet = AvaloniaEdit.Snippets.Snippet;
 using AvaloniaEdit.Demo.ViewModels;
 namespace AvaloniaEdit.Demo
 {
-    using Pair = KeyValuePair<int, Control>;
-
     public partial class MainWindow : Window
     {
+        private const string DemoButtonStyleKey = "demo-button";
         private FoldingManager _foldingManager;
         private readonly TextMate.TextMate.Installation _textMateInstallation;
         private CompletionWindow _completionWindow;
         private OverloadInsightWindow _insightWindow;
-        private ElementGenerator _generator = new ElementGenerator();
         private RegistryOptions _registryOptions;
         private int _currentTheme = (int)ThemeName.DarkPlus;
         private CustomMargin _customMargin;
@@ -71,7 +69,6 @@ namespace AvaloniaEdit.Demo
             InspectClipboardBtn.Click += InspectClipboardButton_Click;
             InsertSnippetBtn.Click += InsertSnippetButton_Click;
 
-            Editor.TextArea.TextView.ElementGenerators.Add(_generator);
             Editor.TextArea.TextView.AnimateInlineObjectPlacement = true;
             Editor.TextArea.TextView.InlineObjectPlacementAnimationDuration = TimeSpan.FromMilliseconds(260);
             Editor.TextArea.TextView.InlineObjectPlacementAnimationEasing = InlineObjectPlacementAnimationEasing.SmootherStep;
@@ -86,6 +83,13 @@ namespace AvaloniaEdit.Demo
             _richTextInputManager.MaxImageHeight = 130;
             _richTextInputManager.EnterKeyBehavior = RichTextEnterKeyBehavior.PlainNewLine;
             _richTextInputManager.ElementFactory = CreateRichTextInputElement;
+            _richTextInputManager.InlineObjectAlignmentSelector = item =>
+                // Buttons behave like text chips. Baseline alignment keeps a small
+                // button next to the text baseline instead of centering it in a
+                // line box enlarged by a tall image on the same line.
+                IsDemoButton(item.Content)
+                    ? InlineObjectVerticalAlignment.Baseline
+                    : _richTextInputManager.InlineObjectAlignment;
             _richTextInputManager.ContentPointerPressed += RichTextInputManager_ContentPointerPressed;
             _richTextInputManager.ContentDoubleTapped += RichTextInputManager_ContentDoubleTapped;
             _richTextInputManager.ContentContextRequested += RichTextInputManager_ContentContextRequested;
@@ -222,6 +226,21 @@ namespace AvaloniaEdit.Demo
 
         private Control CreateRichTextInputElement(RichTextContentItem item)
         {
+            if (IsDemoButton(item.Content))
+            {
+                return new Button
+                {
+                    Content = item.Content.DisplayText,
+                    Cursor = Cursor.Default,
+                    Focusable = false,
+                    IsTabStop = false,
+                    Padding = new Thickness(10, 2),
+                    MinHeight = 0,
+                    HorizontalContentAlignment = HorizontalAlignment.Center,
+                    VerticalContentAlignment = VerticalAlignment.Center
+                };
+            }
+
             var maxInlineWidth = GetRichContentMaxWidth();
             if (item.Content.Kind == RichTextContentKind.File
                 || item.Content.Kind == RichTextContentKind.Folder
@@ -410,26 +429,43 @@ namespace AvaloniaEdit.Demo
 
         private void AddControlButton_Click(object sender, RoutedEventArgs e)
         {
-            var button = new Button() { Content = "Click me", Cursor = Cursor.Default };
-
-            // The VerticalAlignment controls the alignment within a text line.
-            button.VerticalAlignment = VerticalAlignment.Center;
-
-            _generator.controls.Add(new Pair(Editor.CaretOffset, button));
-            _generator.controls.Sort(0, _generator.controls.Count, _generator);
-            Editor.TextArea.TextView.Redraw();
+            _richTextInputManager.InsertContent(
+                RichTextContent.FromCustom(
+                    "Click me",
+                    "DemoButton",
+                    styleKey: DemoButtonStyleKey));
+            Editor.Focus();
         }
 
         private void ClearControlButton_Click(object sender, RoutedEventArgs e)
         {
-            //TODO: delete elements using back key
-            _generator.controls.Clear();
-            Editor.TextArea.TextView.Redraw();
+            // Buttons are regular rich-content items backed by an object-replacement
+            // character. Remove the marker through the manager so anchors, selection,
+            // emoji and undo/redo all remain consistent. Remove from the end because
+            // each deletion changes the offsets of the items that follow it.
+            foreach (var item in _richTextInputManager.GetItemsInDocumentOrder()
+                         .Where(item => IsDemoButton(item.Content))
+                         .OrderByDescending(item => item.Offset)
+                         .ToArray())
+            {
+                _richTextInputManager.RemoveContent(item);
+            }
+
+            Editor.Focus();
+        }
+
+        private static bool IsDemoButton(RichTextContent content)
+        {
+            return content?.Kind == RichTextContentKind.Custom
+                && string.Equals(content.StyleKey, DemoButtonStyleKey, StringComparison.Ordinal);
         }
 
         private void InsertEmojiButton_Click(object sender, RoutedEventArgs e)
         {
-            Editor.TextArea.PerformTextInput("😀");
+            // Keep emoji on the same object-replacement/anchor path as buttons and
+            // other rich content. This prevents a later inline-object deletion from
+            // being confused with a UTF-16 emoji code-unit boundary.
+            _richTextInputManager.InsertEmoji("😀");
             Editor.Focus();
         }
 
@@ -763,41 +799,6 @@ namespace AvaloniaEdit.Demo
             }
 
             Control _contentControl;
-        }
-
-        class ElementGenerator : VisualLineElementGenerator, IComparer<Pair>
-        {
-            public List<Pair> controls = new List<Pair>();
-
-            /// <summary>
-            /// Gets the first interested offset using binary search
-            /// </summary>
-            /// <returns>The first interested offset.</returns>
-            /// <param name="startOffset">Start offset.</param>
-            public override int GetFirstInterestedOffset(int startOffset)
-            {
-                int pos = controls.BinarySearch(new Pair(startOffset, null), this);
-                if (pos < 0)
-                    pos = ~pos;
-                if (pos < controls.Count)
-                    return controls[pos].Key;
-                else
-                    return -1;
-            }
-
-            public override VisualLineElement ConstructElement(int offset)
-            {
-                int pos = controls.BinarySearch(new Pair(offset, null), this);
-                if (pos >= 0)
-                    return new InlineObjectElement(0, controls[pos].Value);
-                else
-                    return null;
-            }
-
-            int IComparer<Pair>.Compare(Pair x, Pair y)
-            {
-                return x.Key.CompareTo(y.Key);
-            }
         }
 
         private void InsertSnippetButton_Click(object sender, RoutedEventArgs e)

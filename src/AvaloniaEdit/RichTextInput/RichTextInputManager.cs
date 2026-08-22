@@ -3582,13 +3582,20 @@ namespace AvaloniaEdit.RichTextInput
             Classes.Add("rich-text-inline-content");
             UpdateSelection();
             _manager.ContentSelectionChanged += Manager_ContentSelectionChanged;
-            AddHandler(ContextRequestedEvent, OnContextRequested);
+            // Rich content is often rendered by an interactive child (for example a
+            // Button). Such a child may mark pointer events handled before they bubble
+            // to this wrapper. Listen with handledEventsToo so clicking any part of the
+            // child still selects the object-replacement marker and makes Backspace /
+            // Delete operate on the rich item rather than on adjacent text or emoji.
+            AddHandler(PointerPressedEvent, OnPointerPressedRouted, RoutingStrategies.Bubble, handledEventsToo: true);
+            AddHandler(PointerReleasedEvent, OnPointerReleasedRouted, RoutingStrategies.Bubble, handledEventsToo: true);
+            AddHandler(DoubleTappedEvent, OnDoubleTappedRouted, RoutingStrategies.Bubble, handledEventsToo: true);
+            AddHandler(ContextRequestedEvent, OnContextRequested, RoutingStrategies.Bubble, handledEventsToo: true);
             DetachedFromVisualTree += OnDetachedFromVisualTree;
         }
 
-        protected override void OnPointerPressed(PointerPressedEventArgs e)
+        private void OnPointerPressedRouted(object sender, PointerPressedEventArgs e)
         {
-            base.OnPointerPressed(e);
             var args = _manager.RaiseContentPointerPressed(_item, e);
             if (args.Handled)
             {
@@ -3601,16 +3608,14 @@ namespace AvaloniaEdit.RichTextInput
             e.Handled = _manager.ShouldHandleContentPointerEvent(args);
         }
 
-        protected override void OnPointerReleased(PointerReleasedEventArgs e)
+        private void OnPointerReleasedRouted(object sender, PointerReleasedEventArgs e)
         {
-            base.OnPointerReleased(e);
             var args = _manager.RaiseContentPointerReleased(_item, e);
             e.Handled = args.Handled || _manager.ShouldHandleContentPointerEvent(args);
         }
 
-        protected override void OnDoubleTapped(TappedEventArgs e)
+        private void OnDoubleTappedRouted(object sender, TappedEventArgs e)
         {
-            base.OnDoubleTapped(e);
             var args = _manager.RaiseContentDoubleTapped(_item, e);
             e.Handled = args.Handled || _manager.ShouldHandleContentPointerEvent(args);
         }
@@ -3629,6 +3634,9 @@ namespace AvaloniaEdit.RichTextInput
         private void OnDetachedFromVisualTree(object sender, VisualTreeAttachmentEventArgs e)
         {
             _manager.ContentSelectionChanged -= Manager_ContentSelectionChanged;
+            RemoveHandler(PointerPressedEvent, OnPointerPressedRouted);
+            RemoveHandler(PointerReleasedEvent, OnPointerReleasedRouted);
+            RemoveHandler(DoubleTappedEvent, OnDoubleTappedRouted);
             RemoveHandler(ContextRequestedEvent, OnContextRequested);
             DetachedFromVisualTree -= OnDetachedFromVisualTree;
         }

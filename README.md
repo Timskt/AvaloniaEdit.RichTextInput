@@ -87,6 +87,16 @@ Common capabilities exposed by `RichTextInputManager`:
 
 See [docs/RichTextInput.md](docs/RichTextInput.md) for the full API guide, paste/drop customization examples, mention popup triggers, link styling, IME behavior, serialization, and demo usage.
 
+Detailed rich inline-content and mixed-height layout documentation is available in both languages:
+
+- [中文：富内容与混合高度布局](docs/Rich-Inline-Content.zh-CN.md)
+- [English: Rich Inline Content and Mixed-Height Layout](docs/Rich-Inline-Content.en-US.md)
+
+IME preedit has a dedicated implementation guide in both languages:
+
+- [中文：IME Preedit 指南](docs/IME-Preedit.zh-CN.md)
+- [English: IME Preedit / Composition Guide](docs/IME-Preedit.en-US.md)
+
 ## Demo
 
 The demo lives in `src/AvaloniaEdit.Demo`.

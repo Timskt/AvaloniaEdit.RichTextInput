@@ -448,6 +448,59 @@ namespace AvaloniaEdit.Tests.RichTextInput
         }
 
         [AvaloniaTest]
+        public void RemovingButtonPreservesEmojiInlineContent()
+        {
+            var textArea = CreateTextArea("ab");
+            var manager = RichTextInputManager.Install(textArea);
+            textArea.Caret.Offset = 1;
+            var button = manager.InsertContent(RichTextContent.FromCustom("Click me", "DemoButton", "demo-button"));
+            var emoji = manager.InsertEmoji("😀");
+
+            textArea.Document.Remove(button.Offset, button.Length);
+
+            Assert.AreEqual("a" + RichTextInputManager.ObjectReplacementString + "b", textArea.Document.Text);
+            Assert.AreEqual(1, manager.Items.Count);
+            Assert.AreSame(emoji, manager.Items[0]);
+            Assert.AreEqual(RichTextContentKind.Emoji, manager.Items[0].Content.Kind);
+            Assert.AreEqual(RichTextInputManager.ObjectReplacementCharacter,
+                textArea.Document.GetCharAt(manager.Items[0].Offset));
+        }
+
+        [AvaloniaTest]
+        public void BackspaceAfterInlineContentRemovesOnlyThatContent()
+        {
+            var textArea = CreateTextArea("ab");
+            var manager = RichTextInputManager.Install(textArea);
+            textArea.Caret.Offset = 1;
+            var button = manager.InsertContent(RichTextContent.FromCustom("Click me", "DemoButton", "demo-button"));
+            var emoji = manager.InsertEmoji("😀");
+
+            textArea.Caret.Offset = emoji.EndOffset;
+            EditingCommands.Backspace.Execute(null, textArea);
+
+            Assert.AreEqual("a" + RichTextInputManager.ObjectReplacementString + "b", textArea.Document.Text);
+            Assert.AreEqual(1, manager.Items.Count);
+            Assert.AreEqual(button.Content.DisplayText, manager.Items[0].Content.DisplayText);
+        }
+
+        [AvaloniaTest]
+        public void DeleteBeforeInlineContentRemovesOnlyThatContent()
+        {
+            var textArea = CreateTextArea("ab");
+            var manager = RichTextInputManager.Install(textArea);
+            textArea.Caret.Offset = 1;
+            var button = manager.InsertContent(RichTextContent.FromCustom("Click me", "DemoButton", "demo-button"));
+            var emoji = manager.InsertEmoji("😀");
+
+            textArea.Caret.Offset = button.Offset;
+            EditingCommands.Delete.Execute(null, textArea);
+
+            Assert.AreEqual("a" + RichTextInputManager.ObjectReplacementString + "b", textArea.Document.Text);
+            Assert.AreEqual(1, manager.Items.Count);
+            Assert.AreSame(emoji, manager.Items[0]);
+        }
+
+        [AvaloniaTest]
         public void SelectContentThenRemoveSelectedTextDeletesInlineContent()
         {
             var textArea = CreateTextArea("ab");
