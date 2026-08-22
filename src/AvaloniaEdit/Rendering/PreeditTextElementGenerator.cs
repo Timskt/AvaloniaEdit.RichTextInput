@@ -26,11 +26,23 @@ namespace AvaloniaEdit.Rendering
 
         public IReadOnlyList<ImePreeditClause> Clauses { get; private set; }
 
-        public void SetPreedit(string text, int? cursorOffset, IReadOnlyList<ImePreeditClause> clauses = null)
+        public void SetPreedit(
+            string text,
+            int? cursorOffset,
+            IReadOnlyList<ImePreeditClause> clauses = null,
+            bool forceRedraw = false)
         {
             text = string.IsNullOrEmpty(text) ? null : text;
             if (_text == text && CursorOffset == cursorOffset && ReferenceEquals(Clauses, clauses))
+            {
+                // The preedit generator is positioned from the current caret. A caret move
+                // can therefore require a new visual-line build even when the IME payload did
+                // not change. This is especially important for keyboard/programmatic caret moves;
+                // pointer clicks are handled separately by TextArea's preedit commit path.
+                if (forceRedraw && _text != null)
+                    _textArea.TextView.Redraw();
                 return;
+            }
 
             _text = text;
             CursorOffset = cursorOffset;

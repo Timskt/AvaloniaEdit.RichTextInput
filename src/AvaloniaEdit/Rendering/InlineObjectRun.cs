@@ -159,27 +159,58 @@ namespace AvaloniaEdit.Rendering
 			get
 			{
 				var properties = Properties;
+				var baselineOffset = double.IsNaN(BaselineOffset) || double.IsInfinity(BaselineOffset)
+					? 0
+					: BaselineOffset;
+
 				if (ReferenceEquals(properties, null))
-					return Math.Max(0, GetElementBaseline() + BaselineOffset);
+					return Math.Max(0, GetElementBaseline(DesiredSize.Height) + baselineOffset);
 
 				var textBaseline = properties.FontRenderingEmSize * 0.8;
 				var baseline = VerticalAlignment switch
 				{
 					InlineObjectVerticalAlignment.Top => textBaseline,
-					InlineObjectVerticalAlignment.Center => Math.Max(0, textBaseline - properties.FontRenderingEmSize / 2 + DesiredSize.Height / 2),
-					InlineObjectVerticalAlignment.Bottom => Math.Max(0, textBaseline - properties.FontRenderingEmSize + DesiredSize.Height),
-					_ => GetElementBaseline()
+					InlineObjectVerticalAlignment.Center => textBaseline,
+					InlineObjectVerticalAlignment.Bottom => textBaseline,
+					// Baseline-aligned controls are visually arranged by TextView, but
+					// their line metrics must use the surrounding text baseline. Using
+					// the control's attached baseline (which is normally zero for a
+					// Button) shifts the line metrics and therefore the text/caret.
+					_ => GetElementBaseline(textBaseline)
 				};
-				return Math.Max(0, baseline + BaselineOffset);
+				return Math.Max(0, baseline + baselineOffset);
 			}
 		}
 
-		private double GetElementBaseline()
+		private double GetElementBaseline(double fallbackBaseline)
 		{
 			double baseline = TextBlock.GetBaselineOffset(Element);
-			if (double.IsNaN(baseline))
-				baseline = DesiredSize.Height;
+			if (!Element.IsSet(TextBlock.BaselineOffsetProperty)
+				|| double.IsNaN(baseline)
+				|| double.IsInfinity(baseline))
+			{
+				baseline = fallbackBaseline;
+			}
 			return baseline;
+		}
+
+		/// <summary>
+		/// Gets the baseline used when a baseline-aligned control is arranged.
+		///
+		/// The formatter baseline intentionally falls back to the surrounding text
+		/// baseline so that a tall control cannot move the line baseline. The visual
+		/// baseline still defaults to the bottom edge of the control, preserving the
+		/// usual inline-object behavior for small controls.
+		/// </summary>
+		internal double ArrangementBaseline
+		{
+			get
+			{
+				var baselineOffset = double.IsNaN(BaselineOffset) || double.IsInfinity(BaselineOffset)
+					? 0
+					: BaselineOffset;
+				return Math.Max(0, GetElementBaseline(DesiredSize.Height) + baselineOffset);
+			}
 		}
 
 		/// <inheritdoc/>

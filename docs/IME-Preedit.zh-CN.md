@@ -278,13 +278,13 @@ var emojiClause = new ImePreeditClause(1, 2);
 
 ## 7. 横向滚动预留
 
-长行末尾的 Overlay preedit 不在文档 extent 中，因此需要在 caret 到达 viewport 边缘前预留可见空间：
+长行末尾的 Overlay preedit 不在文档 extent 中，因此在 **Overlay 组合正在显示时**，需要在 caret 到达 viewport 边缘前预留可见空间：
 
 ```csharp
 editor.Options.ImePreeditHorizontalScrollCharCount = 10;
 ```
 
-默认值是 `10`。实际预留宽度约为：
+没有活动的 Overlay preedit 时不会预留空间；Inline 和 Hidden 模式也不会触发这项专用预留。默认值是 `10`。实际预留宽度约为：
 
 ```text
 TextView.WideSpaceWidth * ImePreeditHorizontalScrollCharCount

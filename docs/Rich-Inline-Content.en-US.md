@@ -62,22 +62,24 @@ There are two different coordinate systems:
 
 The complete line box can be made much taller by a neighboring image or card. Therefore a small button configured as `Center` is expected to move to the middle of that tall row. This is not a faulty calculation; it is the consequence of asking for center alignment in the line box.
 
-The demo configures `Click me` as `Baseline`:
+The demo configures `Click me` as `Bottom`:
 
 ```csharp
 manager.InlineObjectAlignmentSelector = item =>
     item.Content.StyleKey == "demo-button"
-        ? InlineObjectVerticalAlignment.Baseline
+        ? InlineObjectVerticalAlignment.Bottom
         : manager.InlineObjectAlignment;
 ```
 
-As a result, a button inserted beside a tall image stays visually attached to the text baseline instead of floating in the image's vertical center. Images can continue to use `Bottom`, `Center`, or another business-specific alignment.
+This is intentional: the button is placed at the bottom of the complete line box. The renderer keeps the text run, caret, and IME preedit on the same bottom-aligned text content area instead of allowing the taller inline object to move them toward the top of the row. Images can continue to use `Bottom`, `Center`, or another business-specific alignment.
+
+The line box and the text content area are deliberately measured separately. A tall image or button may expand the line box, but it must not change the text baseline or move a caret above the text. `Baseline` remains available for small text-like objects that should follow the baseline directly; explicit `Top`, `Center`, and `Bottom` are relative to the complete line box.
 
 The renderer also clamps arranged objects to the current line box. A large object that is taller than the line is kept at the line start rather than leaking into an adjacent line.
 
 ## 6. Demo verification matrix
 
-1. Paste a tall image into a line and use **Add control**. The button should be baseline-aligned.
+1. Paste a tall image into a line and use **Add control**. The button should be at the bottom of the line, while text and the caret remain at the bottom of the text content area.
 2. Press **Enter**, add the button on a separate line, and confirm normal chip placement.
 3. Select the button and press Backspace or Delete. Only the button disappears.
 4. Insert an emoji before and after the button, remove the button, and confirm both emoji remain in order.
@@ -96,11 +98,11 @@ dotnet test test/AvaloniaEdit.Tests/AvaloniaEdit.Tests.csproj \
   --filter FullyQualifiedName~Inline_Object_Baseline_Remains_Text_Aligned_When_Tall_Sibling_Expands_Line
 ```
 
-It constructs a line containing a tall object and a small baseline-aligned object, then verifies that the small object follows the baseline formula rather than the line-center formula. Rich input tests additionally cover marker deletion, emoji preservation, Delete/Backspace behavior, and anchor movement.
+It constructs a line containing a tall object and a small baseline-aligned object, then verifies that the small object follows the baseline formula rather than the line-center formula. The mixed-height regression tests also verify that a bottom-aligned button and a tall sibling share the line bottom while ordinary text, caret geometry, and the IME preedit baseline stay in the text content area. Rich input tests additionally cover marker deletion, emoji preservation, Delete/Backspace behavior, and anchor movement.
 
 ## 8. Compatibility
 
-- `ava12-feat`: Avalonia 12.0.0, `net8.0`/`net10.0` library targets.
+- `ava12-feat`: Avalonia 12.0.0 compatibility branch, `net8.0`/`net10.0` library targets.
 - `ava11-feat`: Avalonia 11.0.10, `netstandard2.0`/`net6.0` library targets.
 
 The public rich-input concepts are the same on both branches; only Avalonia API and target-framework details differ.

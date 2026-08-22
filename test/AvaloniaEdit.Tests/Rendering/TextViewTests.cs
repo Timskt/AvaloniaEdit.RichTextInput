@@ -278,16 +278,201 @@ namespace AvaloniaEdit.Tests.Rendering
             var runs = textLine.TextRuns.OfType<InlineObjectRun>().ToArray();
             var smallRun = runs.Single(run => ReferenceEquals(run.Element, smallControl));
             var lineHeight = Math.Max(textLine.Height, textView.DefaultLineHeight);
-            var textOffset = Math.Max(0, lineHeight - textLine.Height);
-            var expectedBaselineY = textOffset + textLine.Baseline - smallRun.Baseline;
+            var textOffset = visualLine.GetTextLineDrawingOffset(textLine, lineHeight);
+            var expectedBaselineY = textOffset + textLine.Baseline - smallRun.ArrangementBaseline;
             expectedBaselineY = Math.Max(0, Math.Min(expectedBaselineY, lineHeight - smallControl.DesiredSize.Height));
             var centeredY = Math.Max(0, (lineHeight - smallControl.DesiredSize.Height) / 2);
 
             Assert.AreEqual(expectedBaselineY, smallControl.Bounds.Y, 0.501);
+            Assert.AreEqual(
+                visualLine.GetTextLineVisualYPosition(textLine, VisualYPosition.Baseline),
+                smallControl.Bounds.Bottom,
+                0.501);
             Assert.Greater(
                 Math.Abs(smallControl.Bounds.Y - centeredY),
                 1,
                 "A baseline-aligned small control must not be centered by a tall inline sibling.");
+        }
+
+        [AvaloniaTest]
+        public void Tall_Inline_Object_Does_Not_Offset_Overstrike_Caret_From_Drawn_Text()
+        {
+            var textArea = new AvaloniaEdit.Editing.TextArea
+            {
+                Document = new TextDocument("ab"),
+                Width = 300,
+                Height = 160,
+                OverstrikeMode = true
+            };
+            var manager = AvaloniaEdit.RichTextInput.RichTextInputManager.Install(textArea);
+            manager.ElementFactory = _ => new Border
+            {
+                Width = 80,
+                Height = 60
+            };
+            manager.InsertContent(1, AvaloniaEdit.RichTextInput.RichTextContent.FromCustom("button", 1));
+            textArea.Caret.Offset = 0;
+            textArea.Measure(new Size(300, 160));
+            textArea.Arrange(new Rect(0, 0, 300, 160));
+
+            var visualLine = textArea.TextView.GetOrConstructVisualLine(textArea.Document.Lines[0]);
+            var textLine = visualLine.TextLines[0];
+            var nextPosition = visualLine.GetNextCaretPosition(
+                textArea.Caret.VisualColumn,
+                AvaloniaEdit.Document.LogicalDirection.Forward,
+                CaretPositioningMode.Normal,
+                true);
+            var textBounds = textLine.GetTextBounds(
+                textArea.Caret.VisualColumn,
+                nextPosition - textArea.Caret.VisualColumn)[0].Rectangle;
+            var drawingOriginY = visualLine.GetTextLineVisualYPosition(textLine, VisualYPosition.Baseline)
+                - textLine.Baseline;
+
+            var caretRectangle = textArea.Caret.CalculateCaretRectangle();
+
+            Assert.AreEqual(drawingOriginY + textBounds.Y, caretRectangle.Y, 0.501);
+        }
+
+        [AvaloniaTest]
+        public void Tall_Inline_Object_Line_Hit_Test_Uses_The_Same_Text_Line_Across_Its_Full_Height()
+        {
+            var control = new Border { Width = 40, Height = 80 };
+            var textView = CreateTextViewWithInlineObject(
+                control,
+                "a\ufffcb",
+                InlineObjectVerticalAlignment.Bottom);
+            var visualLine = textView.GetOrConstructVisualLine(textView.Document.Lines[0]);
+            var textLine = visualLine.TextLines[0];
+            var x = visualLine.GetTextLineVisualXPosition(textLine, 1);
+            var lineTop = visualLine.GetTextLineVisualYPosition(textLine, VisualYPosition.LineTop);
+            var lineBottom = visualLine.GetTextLineVisualYPosition(textLine, VisualYPosition.LineBottom);
+
+            Assert.AreEqual(
+                visualLine.GetVisualColumn(new Point(x, lineTop + 0.1), false),
+                visualLine.GetVisualColumn(new Point(x, lineBottom - 0.1), false));
+        }
+
+        [AvaloniaTest]
+        public void Inline_Object_Baseline_Does_Not_Move_Text_Line_Baseline_When_Button_Is_Inserted()
+        {
+            var plainTextView = CreateTextViewWithInlineObject(null, "ab");
+            var button = new Button
+            {
+                Content = "Click me",
+                Padding = new Thickness(10, 2),
+                MinHeight = 0,
+                Height = 40
+            };
+            var buttonTextView = CreateTextViewWithInlineObject(
+                button,
+                "a\ufffcb",
+                InlineObjectVerticalAlignment.Baseline);
+
+            var plainTextLine = plainTextView.GetOrConstructVisualLine(plainTextView.Document.Lines[0]).TextLines[0];
+            var buttonTextLine = buttonTextView.GetOrConstructVisualLine(buttonTextView.Document.Lines[0]).TextLines[0];
+
+            Assert.AreEqual(plainTextLine.Baseline, buttonTextLine.Baseline, 0.501);
+        }
+
+        [AvaloniaTest]
+        public void Bottom_Aligned_Button_Keeps_Text_At_The_Bottom_Of_The_Expanded_Line()
+        {
+            var button = new Button
+            {
+                Content = "Click me",
+                Padding = new Thickness(10, 2),
+                MinHeight = 0,
+                Height = 40
+            };
+            var textView = new TextView
+            {
+                Document = new TextDocument("a\ufffcb"),
+                Width = 300,
+                Height = 160,
+                FontSize = 16
+            };
+            textView.Options.LineContentVerticalAlignment = LineContentVerticalAlignment.Bottom;
+            textView.ElementGenerators.Add(new InlineObjectTestGenerator(
+                1,
+                button,
+                InlineObjectVerticalAlignment.Bottom));
+
+            textView.Measure(new Size(300, 160));
+            textView.Arrange(new Rect(0, 0, 300, 160));
+
+            var visualLine = textView.GetOrConstructVisualLine(textView.Document.Lines[0]);
+            var textLine = visualLine.TextLines[0];
+            var inlineRun = textLine.TextRuns.OfType<InlineObjectRun>().Single();
+            var lineBottom = visualLine.GetTextLineVisualYPosition(textLine, VisualYPosition.LineBottom);
+            var textBottom = visualLine.GetTextLineVisualYPosition(textLine, VisualYPosition.TextBottom);
+
+            Assert.AreEqual(lineBottom, button.Bounds.Bottom, 0.501);
+            Assert.AreEqual(lineBottom, textBottom, 1.001);
+        }
+
+        [AvaloniaTest]
+        public void Bottom_Aligned_Button_Stays_With_Text_When_Tall_Sibling_Expands_Line()
+        {
+            var image = new Border
+            {
+                Width = 80,
+                Height = 100
+            };
+            var button = new Button
+            {
+                Content = "Click me",
+                Padding = new Thickness(10, 2),
+                MinHeight = 0
+            };
+            var textView = new TextView
+            {
+                Document = new TextDocument("a\ufffcb\ufffcc"),
+                Width = 400,
+                Height = 180,
+                FontSize = 16
+            };
+            textView.Options.LineContentVerticalAlignment = LineContentVerticalAlignment.Bottom;
+            textView.ElementGenerators.Add(new MultipleInlineObjectTestGenerator(
+                new InlineObjectTestEntry(1, image, InlineObjectVerticalAlignment.Bottom),
+                new InlineObjectTestEntry(3, button, InlineObjectVerticalAlignment.Bottom)));
+
+            textView.Measure(new Size(400, 180));
+            textView.Arrange(new Rect(0, 0, 400, 180));
+
+            var visualLine = textView.GetOrConstructVisualLine(textView.Document.Lines[0]);
+            var textLine = visualLine.TextLines[0];
+            var lineBottom = visualLine.GetTextLineVisualYPosition(textLine, VisualYPosition.LineBottom);
+            var textBottom = visualLine.GetTextLineVisualYPosition(textLine, VisualYPosition.TextBottom);
+
+            Assert.AreEqual(lineBottom, image.Bounds.Bottom, 0.501);
+            Assert.AreEqual(lineBottom, button.Bounds.Bottom, 0.501);
+            Assert.AreEqual(lineBottom, textBottom, 1.001);
+        }
+
+        private static TextView CreateTextViewWithInlineObject(
+            Control inlineControl,
+            string text,
+            InlineObjectVerticalAlignment alignment = InlineObjectVerticalAlignment.Baseline)
+        {
+            var textView = new TextView
+            {
+                Document = new TextDocument(text),
+                Width = 300,
+                Height = 160,
+                FontSize = 16
+            };
+
+            if (inlineControl != null)
+            {
+                textView.ElementGenerators.Add(new InlineObjectTestGenerator(
+                    1,
+                    inlineControl,
+                    alignment));
+            }
+
+            textView.Measure(new Size(300, 160));
+            textView.Arrange(new Rect(0, 0, 300, 160));
+            return textView;
         }
 
         [AvaloniaTest]
@@ -296,7 +481,7 @@ namespace AvaloniaEdit.Tests.Rendering
             var baselineControl = new Border { Width = 8, Height = 8 };
             var arrangedControl = new Border { Width = 8, Height = 8 };
             var baselineTextView = CreateOffsetTextView(baselineControl, 4, default(Vector));
-            var arrangedTextView = CreateOffsetTextView(arrangedControl, 0, new Vector(3, 5));
+            var arrangedTextView = CreateOffsetTextView(arrangedControl, 0, new Vector(3, -2));
 
             baselineTextView.Measure(new Size(200, 80));
             baselineTextView.Arrange(new Rect(0, 0, 200, 80));
@@ -317,9 +502,35 @@ namespace AvaloniaEdit.Tests.Rendering
                 .Single();
 
             Assert.AreEqual(4, baselineRun.BaselineOffset);
-            Assert.AreEqual(new Vector(3, 5), arrangedRun.ArrangeOffset);
-            Assert.AreEqual(new Vector(3, 5).X, arrangedControl.Bounds.X - baselineControl.Bounds.X, 0.501);
-            Assert.Greater(arrangedControl.Bounds.Y, baselineControl.Bounds.Y);
+            Assert.AreEqual(new Vector(3, -2), arrangedRun.ArrangeOffset);
+            Assert.AreEqual(new Vector(3, -2).X, arrangedControl.Bounds.X - baselineControl.Bounds.X, 0.501);
+            Assert.Less(arrangedControl.Bounds.Y, baselineControl.Bounds.Y);
+        }
+
+        [AvaloniaTest]
+        public void Inline_Object_Arrange_Offset_Is_Clamped_To_Line_Box()
+        {
+            foreach (var offsetY in new[] { -1000d, 1000d })
+            {
+                var control = new Border
+                {
+                    Width = 8,
+                    Height = 8
+                };
+                var textView = CreateOffsetTextView(control, 0, new Vector(0, offsetY));
+                textView.Measure(new Size(200, 80));
+                textView.Arrange(new Rect(0, 0, 200, 80));
+
+                var visualLine = textView.GetOrConstructVisualLine(textView.Document.Lines[0]);
+                var textLine = visualLine.TextLines[0];
+                var lineTop = visualLine.GetTextLineVisualYPosition(textLine, VisualYPosition.LineTop);
+                var lineBottom = visualLine.GetTextLineVisualYPosition(textLine, VisualYPosition.LineBottom);
+                var expectedY = offsetY < 0 ? lineTop : lineBottom - control.DesiredSize.Height;
+
+                Assert.AreEqual(expectedY, control.Bounds.Y, 0.501);
+                Assert.GreaterOrEqual(control.Bounds.Top, lineTop - 0.001);
+                Assert.LessOrEqual(control.Bounds.Bottom, lineBottom + 0.001);
+            }
         }
 
         private static TextView CreateOffsetTextView(Control inlineControl, double baselineOffset, Vector arrangeOffset)

@@ -110,11 +110,11 @@ namespace AvaloniaEdit.Demo
             _richTextInputManager.EnterKeyBehavior = RichTextEnterKeyBehavior.PlainNewLine;
             _richTextInputManager.ElementFactory = CreateRichTextInputElement;
             _richTextInputManager.InlineObjectAlignmentSelector = item =>
-                // Buttons behave like text chips. Baseline alignment keeps a small
-                // button next to the text baseline instead of centering it in a
-                // line box enlarged by a tall image on the same line.
+                // Keep buttons at the bottom of the complete line box. This also
+                // keeps ordinary text and the caret on the same bottom baseline
+                // when a button or a tall image expands the row.
                 IsDemoButton(item.Content)
-                    ? InlineObjectVerticalAlignment.Baseline
+                    ? InlineObjectVerticalAlignment.Bottom
                     : _richTextInputManager.InlineObjectAlignment;
             _richTextInputManager.ContentPointerPressed += RichTextInputManager_ContentPointerPressed;
             _richTextInputManager.ContentDoubleTapped += RichTextInputManager_ContentDoubleTapped;

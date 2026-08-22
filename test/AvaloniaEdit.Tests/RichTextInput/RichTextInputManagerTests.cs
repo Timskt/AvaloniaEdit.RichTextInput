@@ -490,6 +490,32 @@ namespace AvaloniaEdit.Tests.RichTextInput
         }
 
         [AvaloniaTest]
+        public void CaretStaysWithTextAtBottomOfBottomAlignedInlineContentLine()
+        {
+            var textArea = CreateTextArea("ab");
+            textArea.Width = 300;
+            textArea.Height = 160;
+            var manager = RichTextInputManager.Install(textArea);
+            manager.ElementFactory = item => new Border
+            {
+                Width = 80,
+                Height = 40
+            };
+            manager.InsertContent(1, RichTextContent.FromCustom("button", 1));
+            textArea.Caret.Offset = 0;
+
+            textArea.Measure(new Size(300, 160));
+            textArea.Arrange(new Rect(0, 0, 300, 160));
+
+            var visualLine = textArea.TextView.GetOrConstructVisualLine(textArea.Document.Lines[0]);
+            var textLine = visualLine.TextLines[0];
+            var lineBottom = visualLine.GetTextLineVisualYPosition(textLine, VisualYPosition.LineBottom);
+            var caretRectangle = textArea.Caret.CalculateCaretRectangle();
+
+            Assert.AreEqual(lineBottom, caretRectangle.Bottom, 1.001);
+        }
+
+        [AvaloniaTest]
         public void RichTextInputDefaultsToBottomAlignmentAndAllowsPerItemOverride()
         {
             var textArea = CreateTextArea("");

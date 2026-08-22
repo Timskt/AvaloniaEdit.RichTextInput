@@ -38,6 +38,7 @@ using Avalonia.Threading;
 using Avalonia.VisualTree;
 
 using AvaloniaEdit.Document;
+using AvaloniaEdit.Editing;
 using AvaloniaEdit.Utils;
 
 namespace AvaloniaEdit.Rendering
@@ -987,6 +988,27 @@ namespace AvaloniaEdit.Rendering
         private bool _inMeasure;
 
         /// <inheritdoc/>
+        /// <summary>
+        /// Gets the horizontal space reserved for an active overlay IME preedit.
+        /// Inline and hidden preedit is part of the normal text layout (or intentionally
+        /// not rendered), so it must not change the horizontal extent.
+        /// </summary>
+        internal double ImePreeditScrollReservationWidth
+        {
+            get
+            {
+                var textArea = Services.GetService<TextArea>();
+                if (textArea?.ImePreeditDisplayMode != ImePreeditDisplayMode.Overlay
+                    || !textArea.HasImePreedit)
+                {
+                    return 0;
+                }
+
+                return WideSpaceWidth
+                    * Math.Max(0, Options?.ImePreeditHorizontalScrollCharCount ?? 0);
+            }
+        }
+
         protected override Size MeasureOverride(Size availableSize)
         {
             // We don't support infinite available width, so we'll limit it to 32000 pixels.
@@ -1033,8 +1055,7 @@ namespace AvaloniaEdit.Rendering
             // remove inline objects only at the end, so that inline objects that were re-used are not removed from the editor
             RemoveInlineObjectsNow();
 
-            maxWidth += AdditionalHorizontalScrollAmount
-                + WideSpaceWidth * Math.Max(0, Options?.ImePreeditHorizontalScrollCharCount ?? 0);
+            maxWidth += AdditionalHorizontalScrollAmount + ImePreeditScrollReservationWidth;
             var heightTreeHeight = DocumentHeight;
             var options = Options;
             double desiredHeight = Math.Min(availableSize.Height, heightTreeHeight);
@@ -1313,12 +1334,8 @@ namespace AvaloniaEdit.Rendering
                     var offset = 0;
                     foreach (var textLine in visualLine.TextLines)
                     {
-                        var textHeight = textLine.Height;
-                        var lineHeight = Math.Max(textHeight, defaultLineHeight);
-                        var textOffset = VisualLine.GetTextLineContentOffset(
-                            Options.LineContentVerticalAlignment,
-                            lineHeight,
-                            textHeight);
+                        var lineHeight = Math.Max(textLine.Height, defaultLineHeight);
+                        var textOffset = visualLine.GetTextLineDrawingOffset(textLine, lineHeight);
 
                         foreach (var span in textLine.TextRuns)
                         {
@@ -1340,22 +1357,30 @@ namespace AvaloniaEdit.Rendering
                                         lineTop + Math.Max(0, (lineHeight - desiredSize.Height) / 2),
                                     InlineObjectVerticalAlignment.Bottom =>
                                         lineBottom - desiredSize.Height,
-                                    _ => contentTop + textLine.Baseline - inline.Baseline
+                                    _ => contentTop + textLine.Baseline - inline.ArrangementBaseline
                                 };
 
                                 // Explicit inline alignment is relative to the complete line box.
-                                // Baseline alignment still uses the text content offset, while the
-                                // final clamp prevents either mode from leaking into an adjacent line.
+                                // Baseline alignment still uses the text content offset. Apply the
+                                // optional arrangement offset before the final clamp so a custom
+                                // offset cannot move an object into a neighboring line.
+                                var arrangeOffset = inline.ArrangeOffset;
+                                var offsetX = double.IsNaN(arrangeOffset.X) || double.IsInfinity(arrangeOffset.X)
+                                    ? 0
+                                    : arrangeOffset.X;
+                                var offsetY = double.IsNaN(arrangeOffset.Y) || double.IsInfinity(arrangeOffset.Y)
+                                    ? 0
+                                    : arrangeOffset.Y;
+                                y += offsetY;
                                 if (desiredSize.Height <= lineHeight)
                                     y = Math.Max(lineTop, Math.Min(y, lineBottom - desiredSize.Height));
                                 else
                                     y = lineTop;
-                                var arrangeOffset = inline.ArrangeOffset;
                                 var width = desiredSize.Width;
                                 var height = desiredSize.Height;
                                 ArrangeInlineObject(
                                     inline.Element,
-                                    new Rect(x + arrangeOffset.X, y + arrangeOffset.Y, width, height),
+                                    new Rect(x + offsetX, y, width, height),
                                     animateInlineObjectPlacement);
                             }
 

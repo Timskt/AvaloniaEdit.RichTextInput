@@ -425,8 +425,9 @@ namespace AvaloniaEdit.Editing
 				// This is necessary to ensure the rectangle is calculated correctly in bidirectional text.
 				var textBounds = textLine.GetTextBounds(currentPos, nextPos - currentPos)[0];
 				r = textBounds.Rectangle;
-				var y = r.Y + visualLine.GetTextLineVisualYPosition(textLine, VisualYPosition.LineTop);
-				r = r.WithY(y);
+				var drawingOriginY = visualLine.GetTextLineVisualYPosition(
+					textLine, VisualYPosition.Baseline) - textLine.Baseline;
+				r = r.WithY(r.Y + drawingOriginY);
 			} else {
 				// If the caret is at the end of the line (or in virtual space),
 				// use the visual X position of currentPos and nextPos (one or more of which will be in virtual space)
@@ -474,8 +475,7 @@ namespace AvaloniaEdit.Editing
             if (caretRectangle != default)
             {
                 caretRectangle = caretRectangle.Inflate(border);
-                var rightMargin = _textView.WideSpaceWidth
-                    * Math.Max(0, _textView.Options?.ImePreeditHorizontalScrollCharCount ?? 0);
+                var rightMargin = _textView.ImePreeditScrollReservationWidth;
                 if (rightMargin > 0)
                     caretRectangle = caretRectangle.WithWidth(caretRectangle.Width + rightMargin);
                 _textView.MakeVisible(caretRectangle);
