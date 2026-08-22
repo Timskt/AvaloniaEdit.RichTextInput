@@ -1330,11 +1330,26 @@ namespace AvaloniaEdit.Rendering
 
                                 var desiredSize = inline.Element.DesiredSize;
                                 var x = pos.X + textLine.GetDistanceFromCharacterHit(new CharacterHit(offset));
-                                var y = pos.Y + textOffset + textLine.Baseline - inline.Baseline;
+                                var lineTop = pos.Y;
+                                var lineBottom = lineTop + lineHeight;
+                                var contentTop = lineTop + textOffset;
+                                var y = inline.VerticalAlignment switch
+                                {
+                                    InlineObjectVerticalAlignment.Top => lineTop,
+                                    InlineObjectVerticalAlignment.Center =>
+                                        lineTop + Math.Max(0, (lineHeight - desiredSize.Height) / 2),
+                                    InlineObjectVerticalAlignment.Bottom =>
+                                        lineBottom - desiredSize.Height,
+                                    _ => contentTop + textLine.Baseline - inline.Baseline
+                                };
+
+                                // Explicit inline alignment is relative to the complete line box.
+                                // Baseline alignment still uses the text content offset, while the
+                                // final clamp prevents either mode from leaking into an adjacent line.
                                 if (desiredSize.Height <= lineHeight)
-                                    y = Math.Max(pos.Y, Math.Min(y, pos.Y + lineHeight - desiredSize.Height));
+                                    y = Math.Max(lineTop, Math.Min(y, lineBottom - desiredSize.Height));
                                 else
-                                    y = pos.Y;
+                                    y = lineTop;
                                 var arrangeOffset = inline.ArrangeOffset;
                                 var width = desiredSize.Width;
                                 var height = desiredSize.Height;
