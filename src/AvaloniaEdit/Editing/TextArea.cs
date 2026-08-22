@@ -891,8 +891,13 @@ namespace AvaloniaEdit.Editing
             {
                 var documentVersion = Document.Version;
                 PerformTextInput(preedit);
-                if (!ReferenceEquals(documentVersion, Document.Version))
+                var currentVersion = Document?.Version;
+                if (currentVersion == null
+                    || !documentVersion.BelongsToSameDocumentAs(currentVersion)
+                    || documentVersion.CompareAge(currentVersion) != 0)
+                {
                     ArmDuplicateImeCommitSuppression(preedit);
+                }
             }
 
             _imClient.ClearPreedit();

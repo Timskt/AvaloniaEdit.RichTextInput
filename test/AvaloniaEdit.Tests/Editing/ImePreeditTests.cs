@@ -123,17 +123,17 @@ namespace AvaloniaEdit.Tests.Editing
         public void OverlayPreeditWrapsUsesCaretXAndDrawsOneCursor()
         {
             var textArea = CreateTextArea("a");
-            textArea.Width = 80;
+            textArea.Width = 40;
             textArea.Height = 100;
             textArea.Background = Brushes.Black;
             textArea.Caret.Offset = 0;
             textArea.ImePreeditDisplayMode = ImePreeditDisplayMode.Overlay;
-            ArrangeTextView(textArea, 80, 100);
+            ArrangeTextView(textArea, 40, 100);
             var caretX = textArea.Caret.CalculateCaretRectangle().X;
 
             textArea.SetImePreeditText("日本語入力テスト", 4);
             var layer = GetPreeditLayer(textArea);
-            RenderLayer(layer, 80, 100);
+            RenderLayer(layer, 40, 100);
 
             Assert.Greater(layer.LastRenderedChunkCount, 1);
             Assert.AreEqual(layer.LastRenderedChunkCount, layer.LastRenderedChunkOrigins.Count);
