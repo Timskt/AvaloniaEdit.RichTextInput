@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Avalonia;
 using Avalonia.Media;
 using Avalonia.Media.Immutable;
@@ -23,24 +24,28 @@ namespace AvaloniaEdit.Rendering
 
         public int? CursorOffset { get; private set; }
 
-        public void SetPreedit(string text, int? cursorOffset)
+        public IReadOnlyList<ImePreeditClause> Clauses { get; private set; }
+
+        public void SetPreedit(string text, int? cursorOffset, IReadOnlyList<ImePreeditClause> clauses = null)
         {
             text = string.IsNullOrEmpty(text) ? null : text;
-            if (_text == text && CursorOffset == cursorOffset)
+            if (_text == text && CursorOffset == cursorOffset && ReferenceEquals(Clauses, clauses))
                 return;
 
             _text = text;
             CursorOffset = cursorOffset;
+            Clauses = clauses;
             _textArea.TextView.Redraw();
         }
 
         public void Clear(bool redraw = true)
         {
-            if (_text == null && CursorOffset == null)
+            if (_text == null && CursorOffset == null && Clauses == null)
                 return;
 
             _text = null;
             CursorOffset = null;
+            Clauses = null;
             if (redraw)
                 _textArea.TextView.Redraw();
         }
@@ -57,30 +62,33 @@ namespace AvaloniaEdit.Rendering
         public override VisualLineElement ConstructElement(int offset)
         {
             return !string.IsNullOrEmpty(_text) && offset == _textArea.Caret.Offset
-                ? new PreeditTextElement(_text, CursorOffset)
+                ? new PreeditTextElement(_text, CursorOffset, Clauses)
                 : null;
         }
     }
 
     internal sealed class PreeditTextElement : VisualLineElement
     {
-        public PreeditTextElement(string text, int? cursorOffset)
+        public PreeditTextElement(string text, int? cursorOffset, IReadOnlyList<ImePreeditClause> clauses)
             : base(1, 0)
         {
             Text = string.IsNullOrEmpty(text) ? " " : text;
             CursorOffset = Math.Max(0, Math.Min(cursorOffset ?? Text.Length, Text.Length));
+            Clauses = clauses;
         }
 
         public string Text { get; }
 
         public int CursorOffset { get; }
 
+        public IReadOnlyList<ImePreeditClause> Clauses { get; }
+
         public override TextRun CreateTextRun(int startVisualColumn, ITextRunConstructionContext context)
         {
             if (startVisualColumn != VisualColumn)
                 throw new ArgumentOutOfRangeException(nameof(startVisualColumn));
 
-            return new PreeditTextRun(Text, CursorOffset, TextRunProperties);
+            return new PreeditTextRun(Text, CursorOffset, Clauses, TextRunProperties);
         }
 
         public override ReadOnlyMemory<char> GetPrecedingText(int visualColumnLimit, ITextRunConstructionContext context)
@@ -94,13 +102,15 @@ namespace AvaloniaEdit.Rendering
         private readonly TextLayout _layout;
         private readonly TextLayout _cursorPrefixLayout;
         private readonly int _cursorOffset;
+        private readonly IReadOnlyList<ImePreeditClause> _clauses;
 
-        public PreeditTextRun(string text, int cursorOffset, TextRunProperties properties)
+        public PreeditTextRun(string text, int cursorOffset, IReadOnlyList<ImePreeditClause> clauses, TextRunProperties properties)
         {
             Text = text.AsMemory();
             Length = 1;
             Properties = properties ?? throw new ArgumentNullException(nameof(properties));
             _cursorOffset = Math.Max(0, Math.Min(cursorOffset, text.Length));
+            _clauses = clauses;
 
             var foreground = Properties.ForegroundBrush ?? Brushes.Black;
             _layout = new TextLayout(
@@ -135,12 +145,9 @@ namespace AvaloniaEdit.Rendering
             _layout.Draw(drawingContext, origin);
 
             var foreground = Properties.ForegroundBrush ?? Brushes.Black;
-            var pen = new ImmutablePen(foreground.ToImmutable(), 1);
-            var underlineY = origin.Y + Size.Height - 1;
-            drawingContext.DrawLine(
-                pen,
-                new Point(origin.X, underlineY),
-                new Point(origin.X + Size.Width, underlineY));
+            PreeditDecorationRenderer.DrawUnderlines(
+                drawingContext, origin, Text.ToString(), _layout, Properties.Typeface,
+                Properties.FontRenderingEmSize, foreground, _clauses);
 
             var cursorX = origin.X + _cursorPrefixLayout.WidthIncludingTrailingWhitespace;
             drawingContext.DrawLine(

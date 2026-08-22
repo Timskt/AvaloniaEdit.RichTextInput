@@ -553,6 +553,27 @@ namespace AvaloniaEdit
         } = true;
 
         /// <summary>
+        /// Gets/Sets the number of wide-character widths reserved to the right of the caret while
+        /// horizontal scrolling. This leaves room for an overlay IME preedit before the caret reaches
+        /// the edge of the viewport. The default is ten full-width characters.
+        /// </summary>
+        [DefaultValue(10)]
+        public virtual int ImePreeditHorizontalScrollCharCount
+        {
+            get { return field; }
+            set
+            {
+                if (value < 0)
+                    throw new ArgumentOutOfRangeException(nameof(value));
+                if (field != value)
+                {
+                    field = value;
+                    OnPropertyChanged(nameof(ImePreeditHorizontalScrollCharCount));
+                }
+            }
+        } = 10;
+
+        /// <summary>
         /// Gets/Sets whether the column rulers should be shown.
         /// </summary>
         [DefaultValue(false)]

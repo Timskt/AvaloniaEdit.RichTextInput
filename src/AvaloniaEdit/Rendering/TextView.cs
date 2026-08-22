@@ -230,6 +230,13 @@ namespace AvaloniaEdit.Rendering
                 || e.PropertyName == nameof(TextEditorOptions.LineContentVerticalAlignment))
                 InvalidateDefaultTextMetrics();
 
+            if (string.IsNullOrEmpty(e.PropertyName)
+                || e.PropertyName == nameof(TextEditorOptions.ImePreeditHorizontalScrollCharCount))
+            {
+                ClearVisualLines();
+                InvalidateMeasure();
+            }
+
             UpdateBuiltinElementGeneratorsFromOptions();
             Redraw();
         }
@@ -974,7 +981,7 @@ namespace AvaloniaEdit.Rendering
         /// Additonal amount that allows horizontal scrolling past the end of the longest line.
         /// This is necessary to ensure the caret always is visible, even when it is at the end of the longest line.
         /// </summary>
-        private const double AdditionalHorizontalScrollAmount = 3;
+        internal const double AdditionalHorizontalScrollAmount = 3;
 
         private Size _lastAvailableSize;
         private bool _inMeasure;
@@ -1026,7 +1033,8 @@ namespace AvaloniaEdit.Rendering
             // remove inline objects only at the end, so that inline objects that were re-used are not removed from the editor
             RemoveInlineObjectsNow();
 
-            maxWidth += AdditionalHorizontalScrollAmount;
+            maxWidth += AdditionalHorizontalScrollAmount
+                + WideSpaceWidth * Math.Max(0, Options?.ImePreeditHorizontalScrollCharCount ?? 0);
             var heightTreeHeight = DocumentHeight;
             var options = Options;
             double desiredHeight = Math.Min(availableSize.Height, heightTreeHeight);

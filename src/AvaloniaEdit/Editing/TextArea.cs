@@ -25,6 +25,7 @@ using Avalonia.Input.TextInput;
 using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using AvaloniaEdit.Document;
 using AvaloniaEdit.Indentation;
 using AvaloniaEdit.Rendering;
@@ -63,6 +64,12 @@ namespace AvaloniaEdit.Editing
         private readonly PreeditLayer _preeditLayer;
         private readonly PreeditTextElementGenerator _preeditGenerator;
         private ImePreeditDisplayMode _imePreeditDisplayMode = ImePreeditDisplayMode.Inline;
+        private string _pendingSelfCommitText;
+        private int _pendingSelfCommitGeneration;
+        private bool _requestingImeReset;
+        private bool _imeCommitObservedDuringReset;
+        private bool _deferredCaretScrollScheduled;
+        private TextDocument _deferredCaretScrollDocument;
 
         #region Constructor
         static TextArea()
@@ -123,6 +130,11 @@ namespace AvaloniaEdit.Editing
             textView.InsertLayer(_preeditLayer, KnownLayer.Caret, LayerInsertionPosition.Above);
 
             _imClient = new TextAreaTextInputMethodClient(this, _preeditLayer, _preeditGenerator);
+
+            // Commit a composition before SelectionMouseHandler moves the caret. The tunnel phase runs
+            // before the handler's bubbling subscription. Child input controls (for example SearchPanel's
+            // TextBox) are deliberately excluded.
+            AddHandler(PointerPressedEvent, OnPreviewPointerPressedCommitPreedit, RoutingStrategies.Tunnel);
 
             LeftMargins.CollectionChanged += LeftMargins_CollectionChanged;
 
@@ -337,6 +349,7 @@ namespace AvaloniaEdit.Editing
             // in the new document (e.g. if new document is shorter than the old document).
             Caret.Location = new TextLocation(1, 1);
             ClearSelection();
+            ClearPendingSelfCommitSuppression();
             _imClient?.ClearPreedit();
             DocumentChanged?.Invoke(this, new DocumentChangedEventArgs(oldValue, newValue));
             //CommandManager.InvalidateRequerySuggested();
@@ -809,9 +822,93 @@ namespace AvaloniaEdit.Editing
                 _imClient?.RefreshPreeditDisplay();
             }
         }
+
+        /// <summary>Gets whether an IME preedit is currently active.</summary>
+        public bool HasImePreedit => _imClient?.HasPreedit == true;
+
+        /// <summary>
+        /// Sets preedit text with optional clause decorations. This complements Avalonia's native IME client
+        /// API, which currently does not carry clause ranges.
+        /// </summary>
+        public void SetImePreeditText(
+            string text,
+            int? cursorOffset = null,
+            IReadOnlyList<ImePreeditClause> clauses = null)
+        {
+            _imClient.SetPreeditText(text, cursorOffset, clauses);
+        }
+
+        /// <summary>Clears the current IME preedit without changing the document.</summary>
+        public void ClearImePreedit()
+        {
+            ClearPendingSelfCommitSuppression();
+            _imClient.ClearPreedit();
+        }
+
+        private void ClearPendingSelfCommitSuppression()
+        {
+            _pendingSelfCommitText = null;
+            _pendingSelfCommitGeneration++;
+        }
         #endregion
 
         #region Focus Handling (Show/Hide Caret)
+
+        private void OnPreviewPointerPressedCommitPreedit(object sender, PointerPressedEventArgs e)
+        {
+            if (IsEditorPointerSource(e.Source))
+                CommitImePreeditBeforeCaretMove();
+        }
+
+        private bool IsEditorPointerSource(object source)
+        {
+            if (ReferenceEquals(source, this) || ReferenceEquals(source, TextView))
+                return true;
+
+            return source is Visual visual && TextView.IsVisualAncestorOf(visual);
+        }
+
+        internal bool CommitImePreeditBeforeCaretMove()
+        {
+            if (Document == null || !_imClient.HasPreedit)
+                return false;
+
+            var preedit = _imClient.PreeditText;
+            _imeCommitObservedDuringReset = false;
+            _requestingImeReset = true;
+            try
+            {
+                _imClient.RequestImeReset();
+            }
+            finally
+            {
+                _requestingImeReset = false;
+            }
+
+            // Some backends reset/cancel without synchronously delivering TextInput. Commit the string
+            // ourselves at the old caret position, then suppress one matching delayed platform commit.
+            if (!_imeCommitObservedDuringReset && !string.IsNullOrEmpty(preedit))
+            {
+                var documentVersion = Document.Version;
+                PerformTextInput(preedit);
+                if (!ReferenceEquals(documentVersion, Document.Version))
+                    ArmDuplicateImeCommitSuppression(preedit);
+            }
+
+            _imClient.ClearPreedit();
+            return true;
+        }
+
+        private void ArmDuplicateImeCommitSuppression(string text)
+        {
+            _pendingSelfCommitText = text;
+            var generation = ++_pendingSelfCommitGeneration;
+            Dispatcher.UIThread.Post(() =>
+            {
+                if (_pendingSelfCommitGeneration == generation)
+                    _pendingSelfCommitText = null;
+            }, DispatcherPriority.Background);
+        }
 
         protected override void OnPointerPressed(PointerPressedEventArgs e)
         {
@@ -834,6 +931,7 @@ namespace AvaloniaEdit.Editing
 
             Caret.Hide();
 
+            ClearPendingSelfCommitSuppression();
             _imClient.SetTextArea(null);
         }
         #endregion
@@ -869,6 +967,22 @@ namespace AvaloniaEdit.Editing
 
         protected override void OnTextInput(TextInputEventArgs e)
         {
+            if (_requestingImeReset && !string.IsNullOrEmpty(e.Text))
+                _imeCommitObservedDuringReset = true;
+
+            var pendingSelfCommit = _pendingSelfCommitText;
+            if (pendingSelfCommit != null)
+            {
+                _pendingSelfCommitText = null;
+                _pendingSelfCommitGeneration++;
+                if (string.Equals(e.Text, pendingSelfCommit, StringComparison.Ordinal))
+                {
+                    _imClient.ClearPreedit();
+                    e.Handled = true;
+                    return;
+                }
+            }
+
             base.OnTextInput(e);
             if (!e.Handled && Document != null)
             {
@@ -937,7 +1051,27 @@ namespace AvaloniaEdit.Editing
                 }
                 OnTextEntered(e);
                 Caret.BringCaretToView();
+                ScheduleBringCaretToViewAfterLayout();
             }
+        }
+
+        private void ScheduleBringCaretToViewAfterLayout()
+        {
+            _deferredCaretScrollDocument = Document;
+            if (_deferredCaretScrollScheduled)
+                return;
+
+            _deferredCaretScrollScheduled = true;
+            Dispatcher.UIThread.Post(() =>
+            {
+                _deferredCaretScrollScheduled = false;
+                var scheduledDocument = _deferredCaretScrollDocument;
+                _deferredCaretScrollDocument = null;
+                if (scheduledDocument == null || !ReferenceEquals(Document, scheduledDocument))
+                    return;
+
+                Caret.BringCaretToView();
+            }, DispatcherPriority.Loaded);
         }
 
         private void ReplaceSelectionWithNewLine()
@@ -1258,6 +1392,7 @@ namespace AvaloniaEdit.Editing
             private readonly PreeditTextElementGenerator _preeditGenerator;
             private string _preeditText;
             private int? _preeditCursorOffset;
+            private IReadOnlyList<ImePreeditClause> _preeditClauses;
 
             public TextAreaTextInputMethodClient(TextArea textArea, PreeditLayer preeditLayer, PreeditTextElementGenerator preeditGenerator)
             {
@@ -1288,6 +1423,10 @@ namespace AvaloniaEdit.Editing
             public override bool SupportsSurroundingText => true;
 
             public bool HasPreedit => !string.IsNullOrEmpty(_preeditText);
+
+            public string PreeditText => _preeditText;
+
+            public IReadOnlyList<ImePreeditClause> PreeditClauses => _preeditClauses;
 
             public override string SurroundingText
             {
@@ -1366,10 +1505,13 @@ namespace AvaloniaEdit.Editing
             {
                 _preeditText = null;
                 _preeditCursorOffset = null;
+                _preeditClauses = null;
                 _preeditLayer?.Clear();
                 _preeditGenerator?.Clear(redraw);
                 ShowCaretIfFocused();
             }
+
+            public void RequestImeReset() => RequestReset();
 
             private void Caret_PositionChanged(object sender, EventArgs e)
             {
@@ -1389,8 +1531,18 @@ namespace AvaloniaEdit.Editing
 
             public override void SetPreeditText(string text, int? cursorOffset)
             {
+                SetPreeditText(text, cursorOffset, null);
+            }
+
+            public void SetPreeditText(
+                string text,
+                int? cursorOffset,
+                IReadOnlyList<ImePreeditClause> clauses)
+            {
+                _textArea?.ClearPendingSelfCommitSuppression();
                 _preeditText = text;
                 _preeditCursorOffset = cursorOffset;
+                _preeditClauses = ImePreeditClauseCollection.Normalize(text, clauses);
 
                 if (_textArea == null)
                     return;
@@ -1428,7 +1580,7 @@ namespace AvaloniaEdit.Editing
                 if (_textArea.ImePreeditDisplayMode == ImePreeditDisplayMode.Inline)
                 {
                     _preeditLayer?.Clear();
-                    _preeditGenerator?.SetPreedit(_preeditText, _preeditCursorOffset);
+                    _preeditGenerator?.SetPreedit(_preeditText, _preeditCursorOffset, _preeditClauses);
                     _textArea.Caret.Hide();
                     return;
                 }
@@ -1439,7 +1591,7 @@ namespace AvaloniaEdit.Editing
                 var foreground = _textArea.Caret.CaretBrush
                     ?? _textArea.TextView.GetValue(TemplatedControl.ForegroundProperty) as IBrush;
 
-                _preeditLayer?.SetPreedit(_preeditText, caretRect, foreground, _preeditCursorOffset);
+                _preeditLayer?.SetPreedit(_preeditText, caretRect, foreground, _preeditCursorOffset, _preeditClauses);
             }
 
             private void ShowCaretIfFocused()
