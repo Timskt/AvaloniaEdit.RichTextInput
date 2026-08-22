@@ -474,6 +474,10 @@ namespace AvaloniaEdit.Editing
             if (caretRectangle != default)
             {
                 caretRectangle = caretRectangle.Inflate(border);
+                var rightMargin = _textView.WideSpaceWidth
+                    * Math.Max(0, _textView.Options?.ImePreeditHorizontalScrollCharCount ?? 0);
+                if (rightMargin > 0)
+                    caretRectangle = caretRectangle.WithWidth(caretRectangle.Width + rightMargin);
                 _textView.MakeVisible(caretRectangle);
             }
         }
