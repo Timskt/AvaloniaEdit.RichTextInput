@@ -14,7 +14,6 @@ using AvaloniaEdit.Document;
 using AvaloniaEdit.Editing;
 using AvaloniaEdit.Rendering;
 using NUnit.Framework;
-using Assert = NUnit.Framework.Legacy.ClassicAssert;
 
 namespace AvaloniaEdit.Tests.Editing
 {
@@ -98,6 +97,28 @@ namespace AvaloniaEdit.Tests.Editing
                 }));
         }
 
+        [Avalonia.Headless.NUnit.AvaloniaTest]
+        public void InvalidClausesDoNotReplaceTheActivePreedit()
+        {
+            var textArea = CreateTextArea("ab");
+            textArea.Caret.Offset = 1;
+            textArea.SetImePreeditText("旧组合", 1);
+
+            Assert.Throws<ArgumentException>(() => textArea.SetImePreeditText(
+                "新组合",
+                clauses: new[]
+                {
+                    new ImePreeditClause(0, 3),
+                    new ImePreeditClause(2, 2)
+                }));
+
+            Assert.IsTrue(textArea.HasImePreedit);
+            var visualLine = textArea.TextView.GetOrConstructVisualLine(textArea.Document.Lines[0]);
+            var preedit = visualLine.Elements.OfType<PreeditTextElement>().Single();
+            Assert.AreEqual("旧组合", preedit.Text);
+            Assert.AreEqual(1, preedit.CursorOffset);
+        }
+
         [Test]
         public void SliceClausesKeepsLocalRangesAcrossWrappedChunks()
         {
@@ -161,6 +182,36 @@ namespace AvaloniaEdit.Tests.Editing
         }
 
         [Avalonia.Headless.NUnit.AvaloniaTest]
+        public void OverlayPreeditUsesTextBaselineOnTallInlineObjectLine()
+        {
+            var textArea = CreateTextArea("a");
+            var manager = AvaloniaEdit.RichTextInput.RichTextInputManager.Install(textArea);
+            manager.ElementFactory = _ => new Border
+            {
+                Width = 80,
+                Height = 100
+            };
+            manager.InsertContent(1, AvaloniaEdit.RichTextInput.RichTextContent.FromCustom("card", "tall"));
+
+            textArea.Width = 300;
+            textArea.Height = 160;
+            textArea.Caret.Offset = 1;
+            textArea.ImePreeditDisplayMode = ImePreeditDisplayMode.Overlay;
+            ArrangeTextView(textArea, 300, 160);
+
+            var visualLine = textArea.TextView.GetOrConstructVisualLine(textArea.Document.Lines[0]);
+            var textLine = visualLine.GetTextLine(textArea.Caret.VisualColumn, textArea.Caret.Position.IsAtEndOfLine);
+            var expectedBaseline = visualLine.GetTextLineVisualYPosition(textLine, VisualYPosition.Baseline)
+                - textArea.TextView.VerticalOffset;
+
+            textArea.SetImePreeditText("かな");
+            var layer = GetPreeditLayer(textArea);
+            RenderLayer(layer, 300, 160);
+
+            Assert.AreEqual(expectedBaseline, layer.LastBodyBaseline.Value, 0.01);
+        }
+
+        [Avalonia.Headless.NUnit.AvaloniaTest]
         public void OverlayPreeditHandlesNarrowViewportAndGraphemeClusters()
         {
             var textArea = CreateTextArea("a");
@@ -178,6 +229,68 @@ namespace AvaloniaEdit.Tests.Editing
             Assert.AreEqual(new[] { 2, 2 }, layer.LastRenderedChunkLengths.ToArray());
         }
 
+        [Avalonia.Headless.NUnit.AvaloniaTest]
+        public void OverlayPreeditHandlesHardLineBreaksWithoutLoopingOrMergingRows()
+        {
+            var textArea = CreateTextArea("a");
+            textArea.Width = 300;
+            textArea.Height = 160;
+            textArea.Caret.Offset = 0;
+            textArea.ImePreeditDisplayMode = ImePreeditDisplayMode.Overlay;
+            ArrangeTextView(textArea, 300, 160);
+
+            const string preedit = "ab\r\ncd\nef";
+            textArea.SetImePreeditText(preedit, preedit.Length);
+            var layer = GetPreeditLayer(textArea);
+            RenderLayer(layer, 300, 160);
+
+            Assert.AreEqual(3, layer.LastRenderedChunkCount);
+            Assert.AreEqual(new[] { 2, 2, 2 }, layer.LastRenderedChunkLengths.ToArray());
+            Assert.Less(layer.LastRenderedChunkOrigins[0].Y, layer.LastRenderedChunkOrigins[1].Y);
+            Assert.Less(layer.LastRenderedChunkOrigins[1].Y, layer.LastRenderedChunkOrigins[2].Y);
+            Assert.AreEqual(1, layer.LastRenderedCursorCount);
+        }
+
+        [Avalonia.Headless.NUnit.AvaloniaTest]
+        public void OverlayPreeditAtViewportRightEdgeStartsOnNextRowAndMakesProgress()
+        {
+            var textArea = CreateTextArea("a");
+            textArea.Width = 16;
+            textArea.Height = 100;
+            textArea.Caret.Offset = textArea.Document.TextLength;
+            textArea.ImePreeditDisplayMode = ImePreeditDisplayMode.Overlay;
+            ArrangeTextView(textArea, 16, 100);
+
+            textArea.SetImePreeditText("日本", 2);
+            var layer = GetPreeditLayer(textArea);
+            RenderLayer(layer, 16, 100);
+
+            Assert.GreaterOrEqual(layer.LastRenderedChunkCount, 1);
+            Assert.AreEqual(2, layer.LastRenderedChunkLengths.Sum());
+            Assert.AreEqual(0, layer.LastRenderedChunkOrigins[0].X, 0.01);
+            Assert.AreEqual(1, layer.LastRenderedCursorCount);
+        }
+
+        [Avalonia.Headless.NUnit.AvaloniaTest]
+        public void InlinePreeditFollowsProgrammaticCaretMove()
+        {
+            var textArea = CreateTextArea("abcd");
+            textArea.Caret.Offset = 1;
+            textArea.SetImePreeditText("かな", 1);
+            ArrangeTextView(textArea, 300, 100);
+
+            var firstLine = textArea.TextView.GetOrConstructVisualLine(textArea.Document.Lines[0]);
+            var firstPreedit = firstLine.Elements.OfType<PreeditTextElement>().Single();
+            Assert.AreEqual(1, firstPreedit.RelativeTextOffset);
+
+            textArea.Caret.Offset = 3;
+            ArrangeTextView(textArea, 300, 100);
+
+            var movedLine = textArea.TextView.GetOrConstructVisualLine(textArea.Document.Lines[0]);
+            var movedPreedit = movedLine.Elements.OfType<PreeditTextElement>().Single();
+            Assert.AreEqual(3, movedPreedit.RelativeTextOffset);
+        }
+
         [Test]
         public void ImePreeditScrollReservationDefaultsToTenAndRejectsNegativeValues()
         {
@@ -187,12 +300,36 @@ namespace AvaloniaEdit.Tests.Editing
         }
 
         [Avalonia.Headless.NUnit.AvaloniaTest]
-        public void ImePreeditScrollReservationChangesExtent()
+        public void ImePreeditScrollReservationOnlyAppliesToActiveOverlayComposition()
+        {
+            var textArea = CreateTextArea(new string('x', 80));
+            textArea.Options.ImePreeditHorizontalScrollCharCount = 10;
+
+            Assert.AreEqual(0, textArea.TextView.ImePreeditScrollReservationWidth);
+
+            textArea.ImePreeditDisplayMode = ImePreeditDisplayMode.Inline;
+            textArea.SetImePreeditText("かな");
+            Assert.AreEqual(0, textArea.TextView.ImePreeditScrollReservationWidth);
+
+            textArea.ImePreeditDisplayMode = ImePreeditDisplayMode.Overlay;
+            Assert.Greater(textArea.TextView.ImePreeditScrollReservationWidth, 0);
+
+            textArea.ImePreeditDisplayMode = ImePreeditDisplayMode.Hidden;
+            Assert.AreEqual(0, textArea.TextView.ImePreeditScrollReservationWidth);
+
+            textArea.ClearImePreedit();
+            Assert.AreEqual(0, textArea.TextView.ImePreeditScrollReservationWidth);
+        }
+
+        [Avalonia.Headless.NUnit.AvaloniaTest]
+        public void ImePreeditScrollReservationChangesExtentOnlyForOverlayComposition()
         {
             var textArea = CreateTextArea(new string('x', 80));
             textArea.Width = 100;
             textArea.Height = 80;
+            textArea.ImePreeditDisplayMode = ImePreeditDisplayMode.Overlay;
             textArea.Options.ImePreeditHorizontalScrollCharCount = 0;
+            textArea.SetImePreeditText("かな");
             ArrangeTextView(textArea, 100, 80);
             var withoutReservation = ((IScrollable)textArea.TextView).Extent.Width;
 
@@ -202,6 +339,10 @@ namespace AvaloniaEdit.Tests.Editing
 
             Assert.Greater(withReservation, withoutReservation);
             Assert.Greater(withReservation - withoutReservation, 0);
+
+            textArea.ClearImePreedit();
+            ArrangeTextView(textArea, 100, 80);
+            Assert.AreEqual(withoutReservation, ((IScrollable)textArea.TextView).Extent.Width, 0.01);
         }
 
         [Avalonia.Headless.NUnit.AvaloniaTest]

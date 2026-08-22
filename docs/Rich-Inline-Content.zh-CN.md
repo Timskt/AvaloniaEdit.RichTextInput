@@ -62,22 +62,24 @@ foreach (var item in manager.GetItemsInDocumentOrder()
 
 同一行的高图片或卡片可能把 line box 撑得很高。因此，如果把小按钮配置为 `Center`，它出现在高图片的垂直中间是符合该配置的结果，并不是 renderer 的计算错误。
 
-Demo 现在对 `Click me` 使用 `Baseline`：
+Demo 现在对 `Click me` 使用 `Bottom`：
 
 ```csharp
 manager.InlineObjectAlignmentSelector = item =>
     item.Content.StyleKey == "demo-button"
-        ? InlineObjectVerticalAlignment.Baseline
+        ? InlineObjectVerticalAlignment.Bottom
         : manager.InlineObjectAlignment;
 ```
 
-这样按钮即使和高图片处于同一行，也会贴近文字 baseline，而不会漂浮到图片的垂直中心。图片仍然可以按业务需要使用 `Bottom`、`Center` 或其他对齐方式。
+这是刻意的设计：按钮位于完整 line box 的底部。renderer 会把文字、光标和 IME preedit 放在同一行的文字内容区域底部，避免高 inline 对象把它们错误地推到行顶。图片仍然可以按业务需要使用 `Bottom`、`Center` 或其他对齐方式。
+
+line box 和文字内容区域是分开计算的。高图片或高按钮可以撑高 line box，但不能改变普通文字的 baseline，也不能让光标向上移动。`Baseline` 仍然可用于需要直接跟随 baseline 的小型文字控件；显式的 `Top`、`Center`、`Bottom` 都是相对于完整 line box 的对齐。
 
 renderer 还会把对象限制在当前 line box 内。高度超过 line 的大对象会从当前行起始位置布局，不会侵入相邻行。
 
 ## 6. Demo 手工验证矩阵
 
-1. 在一行粘贴高图片，再点击 **Add control**；按钮应贴近文字 baseline。
+1. 在一行粘贴高图片，再点击 **Add control**；按钮应位于整行底部，同时文字和光标仍位于文字内容区域底部。
 2. 按 **Enter** 后单独添加按钮，确认单独一行布局正常。
 3. 选中按钮按 Backspace 或 Delete；只能删除按钮。
 4. 在按钮前后插入 emoji，删除按钮后确认两个 emoji 顺序和显示都不变。
@@ -96,7 +98,7 @@ dotnet test test/AvaloniaEdit.Tests/AvaloniaEdit.Tests.csproj \
   --filter FullyQualifiedName~Inline_Object_Baseline_Remains_Text_Aligned_When_Tall_Sibling_Expands_Line
 ```
 
-测试构造了“高对象 + 小型 baseline 对齐对象”的同一行，并验证小对象使用 baseline 公式，而不是使用整行 center 公式。富输入测试还覆盖 marker 删除、emoji 保留、Backspace/Delete 和 anchor 移动。
+测试构造了“高对象 + 小型 baseline 对齐对象”的同一行，并验证小对象使用 baseline 公式，而不是使用整行 center 公式。混合高度回归测试还验证：底部对齐的按钮和高对象共享行底部，而普通文字、光标几何位置以及 IME preedit baseline 仍位于文字内容区域内。富输入测试还覆盖 marker 删除、emoji 保留、Backspace/Delete 和 anchor 移动。
 
 ## 8. 版本兼容
 

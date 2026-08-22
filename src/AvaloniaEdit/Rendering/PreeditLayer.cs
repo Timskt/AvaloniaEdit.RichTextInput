@@ -111,10 +111,37 @@ namespace AvaloniaEdit.Rendering
             var cursorCount = 0;
             var backgroundFillCount = 0;
 
-            // Each iteration consumes at least one UTF-16 text element, so this guard is only defensive.
-            var maxChunks = Math.Max(1, _preeditText.Length + 1);
-            while (chunkStart < _preeditText.Length && origins.Count < maxChunks)
+            // A hard line break can consume text without producing a drawable chunk, and a
+            // right-edge retry moves once before consuming text. Bound iterations independently
+            // from the diagnostics count while still guaranteeing forward progress.
+            var iterationCount = 0;
+            var maxIterations = Math.Max(2, _preeditText.Length * 2 + 2);
+            while (chunkStart < _preeditText.Length && iterationCount++ < maxIterations)
             {
+                var rest = _preeditText.Substring(chunkStart);
+                var hardBreakIndex = FindHardLineBreak(rest, out var hardBreakLength);
+                var visibleLength = hardBreakIndex >= 0 ? hardBreakIndex : rest.Length;
+
+                if (visibleLength == 0)
+                {
+                    // The cursor at the start of a newline belongs to the line before it. Cursor
+                    // offsets inside CRLF are normalized to the first position after the pair.
+                    if (cursorCount == 0 && effectiveCursorOffset == chunkStart)
+                    {
+                        drawingContext.DrawLine(cursorPen,
+                            new Point(originX, lineTop),
+                            new Point(originX, lineTop + lineHeight));
+                        cursorCount++;
+                    }
+
+                    var breakEnd = chunkStart + hardBreakLength;
+                    if (effectiveCursorOffset > chunkStart && effectiveCursorOffset < breakEnd)
+                        effectiveCursorOffset = breakEnd;
+                    chunkStart = breakEnd;
+                    MoveToNextLine(ref originX, ref lineTop, ref baseline, lineHeight);
+                    continue;
+                }
+
                 var available = viewportWidth - originX;
                 if (available < MinimumUsableWidth && originX > 0)
                 {
@@ -122,11 +149,26 @@ namespace AvaloniaEdit.Rendering
                     continue;
                 }
 
-                var rest = _preeditText.Substring(chunkStart);
-                var measuredLength = MeasureFirstLineLength(rest, typeface, fontRenderingEmSize, foreground,
+                var visibleText = rest.Substring(0, visibleLength);
+                if (originX > 0 && !FirstTextElementFits(
+                    visibleText,
+                    typeface,
+                    fontRenderingEmSize,
+                    foreground,
+                    available))
+                {
+                    MoveToNextLine(ref originX, ref lineTop, ref baseline, lineHeight);
+                    continue;
+                }
+
+                var measuredLength = MeasureFirstLineLength(
+                    visibleText,
+                    typeface,
+                    fontRenderingEmSize,
+                    foreground,
                     Math.Max(MinimumUsableWidth, available));
-                var take = ClampToTextElementBoundary(rest, measuredLength);
-                var chunk = rest.Substring(0, take);
+                var take = Math.Min(visibleLength, ClampToTextElementBoundary(visibleText, measuredLength));
+                var chunk = visibleText.Substring(0, take);
                 var chunkLayout = new TextLayout(
                     chunk,
                     typeface,
@@ -157,9 +199,13 @@ namespace AvaloniaEdit.Rendering
                     fontRenderingEmSize, foreground, localClauses);
 
                 var chunkEnd = chunkStart + take;
+                var reachesHardBreak = hardBreakIndex >= 0 && take == visibleLength;
                 var isLastChunk = chunkEnd >= _preeditText.Length;
-                if (effectiveCursorOffset >= chunkStart
-                    && (isLastChunk ? effectiveCursorOffset <= chunkEnd : effectiveCursorOffset < chunkEnd))
+                if (cursorCount == 0
+                    && effectiveCursorOffset >= chunkStart
+                    && ((isLastChunk || reachesHardBreak)
+                        ? effectiveCursorOffset <= chunkEnd
+                        : effectiveCursorOffset < chunkEnd))
                 {
                     var localCursorOffset = effectiveCursorOffset - chunkStart;
                     var cursorX = origin.X + PreeditDecorationRenderer.MeasurePrefix(
@@ -171,7 +217,27 @@ namespace AvaloniaEdit.Rendering
                 }
 
                 chunkStart = chunkEnd;
+                if (reachesHardBreak)
+                {
+                    var breakEnd = chunkStart + hardBreakLength;
+                    if (effectiveCursorOffset > chunkStart && effectiveCursorOffset < breakEnd)
+                        effectiveCursorOffset = breakEnd;
+                    chunkStart = breakEnd;
+                }
+
                 MoveToNextLine(ref originX, ref lineTop, ref baseline, lineHeight);
+            }
+
+            // A trailing hard break leaves the cursor on an empty row, so there is no text layout
+            // from which to obtain a cursor rectangle. Draw it from the row metrics instead.
+            if (cursorCount == 0
+                && chunkStart == _preeditText.Length
+                && effectiveCursorOffset == chunkStart)
+            {
+                drawingContext.DrawLine(cursorPen,
+                    new Point(originX, lineTop),
+                    new Point(originX, lineTop + lineHeight));
+                cursorCount++;
             }
 
             LastRenderedChunkCount = origins.Count;
@@ -189,6 +255,47 @@ namespace AvaloniaEdit.Rendering
             LastRenderedCursorCount = 0;
             LastRenderedBackgroundFillCount = 0;
             LastBodyBaseline = null;
+        }
+
+        private static int FindHardLineBreak(string text, out int breakLength)
+        {
+            for (var i = 0; i < text.Length; i++)
+            {
+                if (text[i] == '\r')
+                {
+                    breakLength = i + 1 < text.Length && text[i + 1] == '\n' ? 2 : 1;
+                    return i;
+                }
+
+                if (text[i] == '\n')
+                {
+                    breakLength = 1;
+                    return i;
+                }
+            }
+
+            breakLength = 0;
+            return -1;
+        }
+
+        private static bool FirstTextElementFits(
+            string text,
+            Typeface typeface,
+            double fontRenderingEmSize,
+            IBrush foreground,
+            double availableWidth)
+        {
+            if (string.IsNullOrEmpty(text))
+                return true;
+
+            var firstElement = StringInfo.GetNextTextElement(text);
+            var layout = new TextLayout(
+                firstElement,
+                typeface,
+                fontRenderingEmSize,
+                foreground,
+                textWrapping: TextWrapping.NoWrap);
+            return layout.WidthIncludingTrailingWhitespace <= Math.Max(0, availableWidth);
         }
 
         private static int MeasureFirstLineLength(

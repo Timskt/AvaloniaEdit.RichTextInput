@@ -394,12 +394,16 @@ namespace AvaloniaEdit.Rendering
             var pos = VisualTop;
             foreach (var tl in TextLines)
             {
-                double textHeight = tl.Height;
-                double lineHeight = Math.Max(textHeight, defaultLineHeight);
+                double lineHeight = Math.Max(tl.Height, defaultLineHeight);
 
                 if (tl == textLine)
                 {
-                    double textOffset = GetTextLineContentOffset(TextView.Options.LineContentVerticalAlignment, lineHeight, textHeight);
+                    double textOffset = GetTextLineDrawingOffset(tl, lineHeight);
+
+                    var hasInlineObject = TryGetTextLineDrawingMetrics(
+                        tl,
+                        out var textAscent,
+                        out var textDescent);
 
                     switch (yPositionMode)
                     {
@@ -410,11 +414,17 @@ namespace AvaloniaEdit.Rendering
                         case VisualYPosition.LineBottom:
                             return pos + lineHeight;
                         case VisualYPosition.TextTop:
-                            return pos + textOffset + tl.Baseline - TextView.DefaultBaseline;
+                            return hasInlineObject
+                                ? pos + textOffset + tl.Baseline - textAscent
+                                : pos + textOffset + tl.Baseline - TextView.DefaultBaseline;
                         case VisualYPosition.TextBottom:
-                            return pos + textOffset + tl.Baseline - TextView.DefaultBaseline + TextView.DefaultTextHeight;
+                            return hasInlineObject
+                                ? pos + textOffset + tl.Baseline + textDescent
+                                : pos + textOffset + tl.Baseline - TextView.DefaultBaseline + TextView.DefaultTextHeight;
                         case VisualYPosition.TextMiddle:
-                            return pos + textOffset + tl.Baseline - TextView.DefaultBaseline + TextView.DefaultTextHeight / 2;
+                            return hasInlineObject
+                                ? pos + textOffset + tl.Baseline - textAscent + (textAscent + textDescent) / 2
+                                : pos + textOffset + tl.Baseline - TextView.DefaultBaseline + TextView.DefaultTextHeight / 2;
                         case VisualYPosition.Baseline:
                             return pos + textOffset + tl.Baseline;
                         default:
@@ -425,6 +435,76 @@ namespace AvaloniaEdit.Rendering
                 pos += lineHeight;
             }
             throw new ArgumentException("textLine is not a line in this VisualLine");
+        }
+
+        /// <summary>
+        /// Gets the vertical offset used to draw the text line inside its complete line box.
+        /// Inline controls may expand the line box, but their height and baseline must not
+        /// become the vertical metrics for ordinary text, the caret, or IME preedit.
+        /// </summary>
+        internal double GetTextLineDrawingOffset(TextLine textLine, double lineHeight)
+        {
+            if (textLine == null)
+                throw new ArgumentNullException(nameof(textLine));
+
+            if (!TryGetTextLineDrawingMetrics(textLine, out var textAscent, out var textDescent))
+            {
+                return GetTextLineContentOffset(
+                    TextView.Options.LineContentVerticalAlignment,
+                    lineHeight,
+                    textLine.Height);
+            }
+
+            var textHeight = textAscent + textDescent;
+            var textTopInFormattedLine = textLine.Baseline - textAscent;
+            var alignedTextTop = GetTextLineContentOffset(
+                TextView.Options.LineContentVerticalAlignment,
+                lineHeight,
+                textHeight);
+            return alignedTextTop - textTopInFormattedLine;
+        }
+
+        private bool TryGetTextLineDrawingMetrics(
+            TextLine textLine,
+            out double textAscent,
+            out double textDescent)
+        {
+            var hasInlineObject = false;
+            textAscent = 0;
+            textDescent = 0;
+
+            foreach (var run in textLine.TextRuns)
+            {
+                if (run is InlineObjectRun)
+                {
+                    hasInlineObject = true;
+                    continue;
+                }
+
+                if (run is DrawableTextRun drawableRun)
+                {
+                    textAscent = Math.Max(textAscent, Math.Max(0, drawableRun.Baseline));
+                    textDescent = Math.Max(
+                        textDescent,
+                        Math.Max(0, drawableRun.Size.Height - drawableRun.Baseline));
+                }
+            }
+
+            if (!hasInlineObject)
+                return false;
+
+            if (textAscent <= 0 && textDescent <= 0)
+            {
+                textAscent = TextView.DefaultBaseline;
+                textDescent = Math.Max(0, TextView.DefaultTextHeight - textAscent);
+            }
+
+            // Keep the text content area at least as tall as the editor's regular
+            // text metrics. This keeps the caret and IME body usable on an object-only
+            // line and when a custom text run reports a very small drawing height.
+            var textHeight = Math.Max(TextView.DefaultTextHeight, textAscent + textDescent);
+            textDescent = Math.Max(textDescent, textHeight - textAscent);
+            return true;
         }
 
         internal static double GetTextLineContentOffset(LineContentVerticalAlignment alignment, double lineHeight, double textHeight)
@@ -841,9 +921,8 @@ namespace AvaloniaEdit.Rendering
             for (var i = 0; i < textLines.Count; i++)
             {
                 var textLine = textLines[i];
-                double textHeight = textLine.Height;
-                double lineHeight = Math.Max(textHeight, defaultLineHeight);
-                double textOffset = VisualLine.GetTextLineContentOffset(VisualLine.TextView.Options.LineContentVerticalAlignment, lineHeight, textHeight);
+                double lineHeight = Math.Max(textLine.Height, defaultLineHeight);
+                double textOffset = VisualLine.GetTextLineDrawingOffset(textLine, lineHeight);
                 textLine.Draw(context, new Point(0, pos + textOffset));
                 pos += lineHeight;
             }

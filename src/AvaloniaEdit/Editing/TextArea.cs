@@ -736,6 +736,11 @@ namespace AvaloniaEdit.Editing
 
             ScrollToLine(Caret.Line, 2);
 
+            // The preedit generator is anchored to the current caret offset. Refresh it here as
+            // well as the IME client's notification path so programmatic and keyboard caret moves
+            // cannot leave an inline composition painted at its old location.
+            _imClient?.RefreshPreeditDisplay();
+
             Dispatcher.UIThread.InvokeAsync(() =>
             {
                 (this as ILogicalScrollable).RaiseScrollInvalidated(EventArgs.Empty);
@@ -818,8 +823,11 @@ namespace AvaloniaEdit.Editing
                 if (_imePreeditDisplayMode == value)
                     return;
 
+                var hadOverlayPreeditReservation = _imClient?.IsOverlayPreeditReservationEnabled == true;
                 _imePreeditDisplayMode = value;
                 _imClient?.RefreshPreeditDisplay();
+                if (hadOverlayPreeditReservation != (_imClient?.IsOverlayPreeditReservationEnabled == true))
+                    TextView.InvalidateMeasure();
             }
         }
 
@@ -1429,6 +1437,11 @@ namespace AvaloniaEdit.Editing
 
             public bool HasPreedit => !string.IsNullOrEmpty(_preeditText);
 
+            internal bool IsOverlayPreeditReservationEnabled
+                => _textArea != null
+                    && _textArea.ImePreeditDisplayMode == ImePreeditDisplayMode.Overlay
+                    && HasPreedit;
+
             public string PreeditText => _preeditText;
 
             public IReadOnlyList<ImePreeditClause> PreeditClauses => _preeditClauses;
@@ -1508,12 +1521,20 @@ namespace AvaloniaEdit.Editing
 
             public void ClearPreedit(bool redraw = true)
             {
+                var hadOverlayPreeditReservation = IsOverlayPreeditReservationEnabled;
                 _preeditText = null;
                 _preeditCursorOffset = null;
                 _preeditClauses = null;
                 _preeditLayer?.Clear();
                 _preeditGenerator?.Clear(redraw);
                 ShowCaretIfFocused();
+                if (hadOverlayPreeditReservation)
+                {
+                    // Overlay preedit is outside the document visual lines, but it contributes
+                    // to the horizontal extent while active. Rebuild the measure state when it
+                    // disappears so both the extent and the scroll offset are recalculated.
+                    _textArea?.TextView.Redraw();
+                }
             }
 
             public void RequestImeReset() => RequestReset();
@@ -1524,9 +1545,8 @@ namespace AvaloniaEdit.Editing
                 RaiseSurroundingTextChanged();
                 RaiseSelectionChanged();
 
-                // Update preedit position when caret moves
-                if (!string.IsNullOrEmpty(_preeditText))
-                    RefreshPreeditDisplay();
+                // TextArea.CaretPositionChanged refreshes the visual representation. Keep this
+                // client callback focused on the native IME state notifications.
             }
 
             public override void SetPreeditText(string text)
@@ -1545,12 +1565,6 @@ namespace AvaloniaEdit.Editing
                 IReadOnlyList<ImePreeditClause> clauses)
             {
                 _textArea?.ClearPendingSelfCommitSuppression();
-                _preeditText = text;
-                _preeditCursorOffset = cursorOffset;
-                _preeditClauses = ImePreeditClauseCollection.Normalize(text, clauses);
-
-                if (_textArea == null)
-                    return;
 
                 if (string.IsNullOrEmpty(text))
                 {
@@ -1558,7 +1572,21 @@ namespace AvaloniaEdit.Editing
                     return;
                 }
 
+                // Validate and normalize the complete payload before mutating the active
+                // composition. A malformed clause list must not leave a partially updated
+                // preedit behind when this API throws.
+                var normalizedClauses = ImePreeditClauseCollection.Normalize(text, clauses);
+                var hadOverlayPreeditReservation = IsOverlayPreeditReservationEnabled;
+                _preeditText = text;
+                _preeditCursorOffset = cursorOffset;
+                _preeditClauses = normalizedClauses;
+
+                if (_textArea == null)
+                    return;
+
                 RefreshPreeditDisplay();
+                if (hadOverlayPreeditReservation != IsOverlayPreeditReservationEnabled)
+                    _textArea.TextView.InvalidateMeasure();
             }
 
             public void RefreshPreeditDisplay()
@@ -1585,7 +1613,7 @@ namespace AvaloniaEdit.Editing
                 if (_textArea.ImePreeditDisplayMode == ImePreeditDisplayMode.Inline)
                 {
                     _preeditLayer?.Clear();
-                    _preeditGenerator?.SetPreedit(_preeditText, _preeditCursorOffset, _preeditClauses);
+                    _preeditGenerator?.SetPreedit(_preeditText, _preeditCursorOffset, _preeditClauses, forceRedraw: true);
                     _textArea.Caret.Hide();
                     return;
                 }

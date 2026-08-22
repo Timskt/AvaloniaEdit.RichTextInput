@@ -278,13 +278,13 @@ var emojiClause = new ImePreeditClause(1, 2);
 
 ## 7. Horizontal scroll reservation
 
-Overlay preedit at the end of a long line is outside the document extent. The editor therefore reserves space before the caret reaches the viewport edge:
+Overlay preedit at the end of a long line is outside the document extent. The editor therefore reserves space **only while an Overlay composition is active**, before the caret reaches the viewport edge:
 
 ```csharp
 editor.Options.ImePreeditHorizontalScrollCharCount = 10;
 ```
 
-The default is `10`. The approximate reserved width is:
+No space is reserved when there is no active Overlay preedit; Inline and Hidden modes do not use this overlay-only reservation. The default is `10`. The approximate reserved width is:
 
 ```text
 TextView.WideSpaceWidth * ImePreeditHorizontalScrollCharCount
