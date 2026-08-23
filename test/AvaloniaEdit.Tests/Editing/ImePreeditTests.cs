@@ -291,6 +291,76 @@ namespace AvaloniaEdit.Tests.Editing
         }
 
         [Avalonia.Headless.NUnit.AvaloniaTest]
+        public void InlinePreeditWrapsWhenHorizontalScrollingIsEnabled()
+        {
+            var textArea = CreateTextArea("a");
+            textArea.Width = 48;
+            textArea.Height = 240;
+            textArea.Caret.Offset = textArea.Document.TextLength;
+            textArea.ImePreeditDisplayMode = ImePreeditDisplayMode.Inline;
+            ((ILogicalScrollable)textArea.TextView).CanHorizontallyScroll = true;
+            ArrangeTextView(textArea, 48, 240);
+
+            const string preedit = "zhonghuarenmingongheguo";
+            textArea.SetImePreeditText(preedit, preedit.Length);
+            ArrangeTextView(textArea, 48, 240);
+
+            var visualLine = textArea.TextView.GetOrConstructVisualLine(textArea.Document.Lines[0]);
+            Assert.GreaterOrEqual(visualLine.TextLines.Count, 3);
+            Assert.AreEqual(preedit.Length, visualLine.Elements.OfType<PreeditTextElement>().Single().VisualLength);
+        }
+
+        [Avalonia.Headless.NUnit.AvaloniaTest]
+        public void InlinePreeditWrapsOnlyItsSecondDocumentLineWhenHorizontalScrollingIsEnabled()
+        {
+            var longBodyLine = new string('x', 80);
+            var textArea = CreateTextArea($"{longBodyLine}\nb\n{longBodyLine}");
+            textArea.Width = 48;
+            textArea.Height = 240;
+            textArea.Caret.Offset = textArea.Document.Lines[1].EndOffset;
+            textArea.ImePreeditDisplayMode = ImePreeditDisplayMode.Inline;
+            ((ILogicalScrollable)textArea.TextView).CanHorizontallyScroll = true;
+            ArrangeTextView(textArea, 48, 240);
+
+            const string preedit = "zhonghuarenmingongheguo";
+            textArea.SetImePreeditText(preedit, preedit.Length);
+            ArrangeTextView(textArea, 48, 240);
+
+            var firstLine = textArea.TextView.GetOrConstructVisualLine(textArea.Document.Lines[0]);
+            var compositionLine = textArea.TextView.GetOrConstructVisualLine(textArea.Document.Lines[1]);
+            var thirdLine = textArea.TextView.GetOrConstructVisualLine(textArea.Document.Lines[2]);
+
+            Assert.AreEqual(1, firstLine.TextLines.Count);
+            Assert.GreaterOrEqual(compositionLine.TextLines.Count, 3);
+            Assert.AreEqual(1, thirdLine.TextLines.Count);
+        }
+
+        [Avalonia.Headless.NUnit.AvaloniaTest]
+        public void InlinePreeditWrappingDoesNotChangeNoWrapAfterClear()
+        {
+            var textArea = CreateTextArea(new string('x', 80));
+            textArea.Width = 48;
+            textArea.Height = 240;
+            textArea.Caret.Offset = textArea.Document.TextLength;
+            textArea.ImePreeditDisplayMode = ImePreeditDisplayMode.Inline;
+            ((ILogicalScrollable)textArea.TextView).CanHorizontallyScroll = true;
+            ArrangeTextView(textArea, 48, 240);
+
+            var bodyLine = textArea.TextView.GetOrConstructVisualLine(textArea.Document.Lines[0]);
+            Assert.AreEqual(1, bodyLine.TextLines.Count);
+
+            textArea.SetImePreeditText("zhonghuarenmingongheguo", 23);
+            ArrangeTextView(textArea, 48, 240);
+            var preeditLine = textArea.TextView.GetOrConstructVisualLine(textArea.Document.Lines[0]);
+            Assert.Greater(preeditLine.TextLines.Count, 1);
+
+            textArea.ClearImePreedit();
+            ArrangeTextView(textArea, 48, 240);
+            var clearedLine = textArea.TextView.GetOrConstructVisualLine(textArea.Document.Lines[0]);
+            Assert.AreEqual(1, clearedLine.TextLines.Count);
+        }
+
+        [Avalonia.Headless.NUnit.AvaloniaTest]
         public void InlinePreeditLongTextWrapsFromSecondDocumentLine()
         {
             var textArea = CreateTextArea("first\nb");

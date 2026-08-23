@@ -1170,12 +1170,16 @@ namespace AvaloniaEdit.Rendering
             return p;
         }
 
-        private VisualLineTextParagraphProperties CreateParagraphProperties(TextRunProperties defaultTextRunProperties)
+        private VisualLineTextParagraphProperties CreateParagraphProperties(
+            TextRunProperties defaultTextRunProperties,
+            bool forceWrap = false)
         {
             return new VisualLineTextParagraphProperties
             {
                 defaultTextRunProperties = defaultTextRunProperties,
-                textWrapping = _canHorizontallyScroll ? TextWrapping.NoWrap : TextWrapping.Wrap,
+                textWrapping = forceWrap || !_canHorizontallyScroll
+                    ? TextWrapping.Wrap
+                    : TextWrapping.NoWrap,
                 tabSize = Options.IndentationSize * WideSpaceWidth
             };
         }
@@ -1220,6 +1224,20 @@ namespace AvaloniaEdit.Rendering
 
             visualLine.RunTransformers(textSource, lineTransformersArray);
 
+            // Inline IME preedit is not part of the document, so it must opt into wrapping
+            // explicitly when the editor normally allows horizontal scrolling. Without this
+            // per-line override, a long composition keeps extending a NoWrap text line and is
+            // clipped at the viewport edge. Ordinary document lines keep their NoWrap behavior
+            // both before and after the composition.
+            var effectiveParagraphProperties = paragraphProperties;
+            if (_canHorizontallyScroll
+                && visualLine.Elements.Any(element => element is PreeditTextElement))
+            {
+                effectiveParagraphProperties = CreateParagraphProperties(
+                    globalTextRunProperties,
+                    forceWrap: true);
+            }
+
             // now construct textLines:
             TextLineBreak lastLineBreak = null;
             var textOffset = 0;
@@ -1231,7 +1249,7 @@ namespace AvaloniaEdit.Rendering
                     textSource,
                     textOffset,
                     availableSize.Width,
-                    paragraphProperties,
+                    effectiveParagraphProperties,
                     lastLineBreak
                 );
 
@@ -1242,9 +1260,9 @@ namespace AvaloniaEdit.Rendering
                 if (textOffset >= visualLine.VisualLengthWithEndOfLineMarker)
                     break;
 
-                if (paragraphProperties.firstLineInParagraph)
+                if (effectiveParagraphProperties.firstLineInParagraph)
                 {
-                    paragraphProperties.firstLineInParagraph = false;
+                    effectiveParagraphProperties.firstLineInParagraph = false;
 
                     TextEditorOptions options = this.Options;
                     double indentation = 0;
@@ -1260,7 +1278,7 @@ namespace AvaloniaEdit.Rendering
                     indentation += options.WordWrapIndentation;
                     // apply the calculated indentation unless it's more than half of the text editor size:
                     if (indentation > 0 && indentation * 2 < availableSize.Width)
-                        paragraphProperties.indent = indentation;
+                        effectiveParagraphProperties.indent = indentation;
                 }
 
                 lastLineBreak = textLine.TextLineBreak;
