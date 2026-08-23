@@ -112,7 +112,7 @@ dotnet test test/AvaloniaEdit.Tests/AvaloniaEdit.Tests.csproj \
 
 ## 8. 版本兼容
 
-- `ava12-feat`：Avalonia 12.0.0，库目标为 `net8.0`/`net10.0`。
+- `ava12-feat`：Avalonia 12.1.1，库目标为 `net8.0`/`net10.0`。
 - `ava11-feat`：Avalonia 11.0.10 兼容分支，库目标为 `netstandard2.0`/`net6.0`。
 
 两个分支的富输入公共概念相同，差异主要在 Avalonia API 和目标框架。

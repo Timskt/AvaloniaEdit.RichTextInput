@@ -26,6 +26,8 @@ namespace AvaloniaEdit.Rendering
         private IBrush _foreground;
         private int? _cursorOffset;
         private IReadOnlyList<ImePreeditClause> _clauses;
+        private Rect? _inlineCursorRect;
+        private IBrush _inlineCursorForeground;
 
         public PreeditLayer(TextArea textArea) : base(textArea.TextView, KnownLayer.Caret)
         {
@@ -47,6 +49,8 @@ namespace AvaloniaEdit.Rendering
             int? cursorOffset = null,
             IReadOnlyList<ImePreeditClause> clauses = null)
         {
+            _inlineCursorRect = null;
+            _inlineCursorForeground = null;
             _preeditText = text;
             _caretRect = caretRect;
             _foreground = foreground;
@@ -55,14 +59,42 @@ namespace AvaloniaEdit.Rendering
             InvalidateVisual();
         }
 
+        public void SetInlineCursor(Rect rectangle, IBrush foreground)
+        {
+            if (_inlineCursorRect == rectangle
+                && ReferenceEquals(_inlineCursorForeground, foreground))
+            {
+                return;
+            }
+
+            _inlineCursorRect = rectangle;
+            _inlineCursorForeground = foreground;
+            InvalidateVisual();
+        }
+
+        public void ClearInlineCursor()
+        {
+            if (_inlineCursorRect == null && _inlineCursorForeground == null)
+                return;
+
+            _inlineCursorRect = null;
+            _inlineCursorForeground = null;
+            InvalidateVisual();
+        }
+
         public void Clear()
         {
-            if (_preeditText == null && _clauses == null)
+            if (_preeditText == null
+                && _clauses == null
+                && _inlineCursorRect == null
+                && _inlineCursorForeground == null)
                 return;
 
             _preeditText = null;
             _cursorOffset = null;
             _clauses = null;
+            _inlineCursorRect = null;
+            _inlineCursorForeground = null;
             ResetRenderDiagnostics();
             InvalidateVisual();
         }
@@ -72,11 +104,26 @@ namespace AvaloniaEdit.Rendering
             base.Render(drawingContext);
             ResetRenderDiagnostics();
 
-            if (string.IsNullOrEmpty(_preeditText))
-                return;
-
             var textView = TextView;
             if (textView?.Document == null)
+                return;
+
+            if (_inlineCursorRect is { } inlineCursorRect)
+            {
+                var inlineForeground = _inlineCursorForeground
+                    ?? textView.GetValue(TemplatedControl.ForegroundProperty) as IBrush
+                    ?? Brushes.White;
+                var inlineCursorPen = new ImmutablePen(inlineForeground.ToImmutable(), 2);
+                var x = inlineCursorRect.X - textView.HorizontalOffset;
+                var top = inlineCursorRect.Y - textView.VerticalOffset;
+                drawingContext.DrawLine(
+                    inlineCursorPen,
+                    new Point(x, top),
+                    new Point(x, top + Math.Max(1, inlineCursorRect.Height)));
+                LastRenderedCursorCount = 1;
+            }
+
+            if (string.IsNullOrEmpty(_preeditText))
                 return;
 
             var viewportWidth = Math.Max(0, Bounds.Width);
@@ -108,7 +155,7 @@ namespace AvaloniaEdit.Rendering
             var baseline = metrics?.Baseline;
             var origins = new List<Point>();
             var chunkLengths = new List<int>();
-            var cursorCount = 0;
+            var cursorCount = LastRenderedCursorCount;
             var backgroundFillCount = 0;
 
             // A hard line break can consume text without producing a drawable chunk, and a

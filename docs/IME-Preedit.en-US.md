@@ -550,10 +550,15 @@ After starting the demo, use this sequence to verify the feature manually:
 The Avalonia 12 branch uses:
 
 ```text
-Avalonia 12.0.0
+Avalonia 12.1.1
 TargetFramework: net8.0; net10.0
 Solution: AvaloniaEdit.slnx
 ```
+
+The Avalonia 12 branch requires at least `12.1.1`. That release includes native macOS
+IME fixes for `replacementRange`, surrounding-text selection synchronization, and preedit
+state across focus changes. Staying on `12.0.0` can make Apple Simplified Pinyin show the
+phonetic composition while its candidate or converted Chinese text remains invisible after wrapping.
 
 Build with:
 

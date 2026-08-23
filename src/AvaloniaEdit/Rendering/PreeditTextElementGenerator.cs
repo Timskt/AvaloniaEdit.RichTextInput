@@ -4,7 +4,6 @@ using System.Globalization;
 using Avalonia;
 using Avalonia.Collections;
 using Avalonia.Media;
-using Avalonia.Media.Immutable;
 using Avalonia.Media.TextFormatting;
 using AvaloniaEdit.Editing;
 
@@ -84,8 +83,7 @@ namespace AvaloniaEdit.Rendering
     internal sealed class PreeditTextElement : VisualLineElement
     {
         private readonly int _renderedCursorOffset;
-        private readonly int _cursorRunStart;
-        private readonly int _cursorRunLength;
+        private readonly int[] _textElementStarts;
         private readonly IReadOnlyList<PreeditTextSegment> _segments;
 
         public PreeditTextElement(string text, int? cursorOffset, IReadOnlyList<ImePreeditClause> clauses)
@@ -95,7 +93,7 @@ namespace AvaloniaEdit.Rendering
             CursorOffset = Math.Max(0, Math.Min(cursorOffset ?? Text.Length, Text.Length));
             Clauses = clauses;
             _renderedCursorOffset = NormalizeCursorOffset(Text, CursorOffset);
-            (_cursorRunStart, _cursorRunLength) = GetCursorRunRange(Text, _renderedCursorOffset);
+            _textElementStarts = CreateTextElementStarts(Text);
             _segments = CreateSegments(Text, Clauses);
         }
 
@@ -113,27 +111,24 @@ namespace AvaloniaEdit.Rendering
             if (textOffset < 0 || textOffset >= VisualLength)
                 throw new ArgumentOutOfRangeException(nameof(startVisualColumn));
 
-            if (textOffset == _cursorRunStart)
-            {
-                var clause = FindClause(Clauses, textOffset);
-                return new PreeditCursorTextRun(
-                    Text.AsMemory(textOffset, _cursorRunLength),
-                    _renderedCursorOffset - textOffset,
-                    clause,
-                    TextRunProperties);
-            }
+            if (TryGetHardLineBreakLength(textOffset, out var hardLineBreakLength))
+                return new TextEndOfLine(hardLineBreakLength);
 
             var segment = FindSegment(textOffset);
-            var length = segment.End - textOffset;
-
-            // The cursor host is one complete grapheme cluster rendered by a drawable run.
-            // Keep ordinary TextCharacters from consuming that cluster so the cursor can be
-            // painted exactly once without making the full composition an unbreakable object.
-            if (textOffset < _cursorRunStart)
-                length = Math.Min(length, _cursorRunStart - textOffset);
-
+            var textElementEnd = GetTextElementEnd(textOffset);
+            var runEnd = Math.Min(segment.End, textElementEnd);
             var properties = CreateProperties(segment.Clause);
-            return new TextCharacters(Text.AsMemory(textOffset, length), properties);
+
+            // Avalonia's formatter joins adjacent TextCharacters when their ReadOnlyMemory
+            // instances refer to contiguous slices of the same backing string. A long pinyin
+            // composition then becomes one unbreakable word and can be moved to the next row
+            // even though the current row still has room. Give every grapheme its own backing
+            // string so Wrap can consume the available width without splitting surrogate pairs,
+            // combining sequences, emoji, or CRLF.
+            var textElement = Text.Substring(textOffset, runEnd - textOffset);
+            return new TextCharacters(
+                textElement.AsMemory(),
+                properties);
         }
 
         public override ReadOnlyMemory<char> GetPrecedingText(int visualColumnLimit, ITextRunConstructionContext context)
@@ -145,12 +140,68 @@ namespace AvaloniaEdit.Rendering
         private static int GetVisualLength(string text)
             => Math.Max(1, string.IsNullOrEmpty(text) ? 1 : text.Length);
 
+        private static int[] CreateTextElementStarts(string text)
+        {
+            var parsedStarts = StringInfo.ParseCombiningCharacters(text);
+            if (parsedStarts.Length < 2)
+                return parsedStarts;
+
+            // StringInfo treats CR and LF as separate text elements. Keep a CRLF pair
+            // together because Avalonia's line-break algorithm consumes it as one hard break.
+            var starts = new List<int>(parsedStarts.Length);
+            foreach (var start in parsedStarts)
+            {
+                if (start > 0 && text[start] == '\n' && text[start - 1] == '\r')
+                    continue;
+
+                starts.Add(start);
+            }
+
+            return starts.ToArray();
+        }
+
+        private bool TryGetHardLineBreakLength(int textOffset, out int length)
+        {
+            if (textOffset < 0 || textOffset >= Text.Length)
+            {
+                length = 0;
+                return false;
+            }
+
+            switch (Text[textOffset])
+            {
+                case '\r':
+                    length = textOffset + 1 < Text.Length && Text[textOffset + 1] == '\n' ? 2 : 1;
+                    return true;
+                case '\n':
+                    length = 1;
+                    return true;
+                default:
+                    length = 0;
+                    return false;
+            }
+        }
+
+        private int GetTextElementEnd(int textOffset)
+        {
+            var index = Array.BinarySearch(_textElementStarts, textOffset);
+            if (index < 0)
+            {
+                throw new InvalidOperationException(
+                    $"The text formatter requested IME preedit offset {textOffset} inside a grapheme cluster.");
+            }
+
+            return index + 1 < _textElementStarts.Length
+                ? _textElementStarts[index + 1]
+                : Text.Length;
+        }
+
         private static int NormalizeCursorOffset(string text, int cursorOffset)
         {
             if (cursorOffset <= 0 || cursorOffset >= text.Length)
                 return Math.Max(0, Math.Min(cursorOffset, text.Length));
 
-            var starts = StringInfo.ParseCombiningCharacters(text);
+            var starts = CreateTextElementStarts(text);
             foreach (var start in starts)
             {
                 if (start == cursorOffset)
@@ -162,35 +213,11 @@ namespace AvaloniaEdit.Rendering
             return text.Length;
         }
 
-        private static (int Start, int Length) GetCursorRunRange(string text, int cursorOffset)
-        {
-            var starts = StringInfo.ParseCombiningCharacters(text);
-            if (starts.Length == 0)
-                return (0, text.Length);
-
-            var runIndex = starts.Length - 1;
-            if (cursorOffset < text.Length)
-            {
-                for (var i = 0; i < starts.Length; i++)
-                {
-                    if (starts[i] == cursorOffset)
-                    {
-                        runIndex = i;
-                        break;
-                    }
-                }
-            }
-
-            var start = starts[runIndex];
-            var end = runIndex + 1 < starts.Length ? starts[runIndex + 1] : text.Length;
-            return (start, end - start);
-        }
-
         private static IReadOnlyList<PreeditTextSegment> CreateSegments(
             string text,
             IReadOnlyList<ImePreeditClause> clauses)
         {
-            var starts = StringInfo.ParseCombiningCharacters(text);
+            var starts = CreateTextElementStarts(text);
             var segments = new List<PreeditTextSegment>(Math.Max(1, starts.Length));
             var segmentStart = 0;
             ImePreeditClause segmentClause = null;
@@ -331,89 +358,4 @@ namespace AvaloniaEdit.Rendering
         }
     }
 
-    internal sealed class PreeditCursorTextRun : DrawableTextRun
-    {
-        private readonly TextLayout _layout;
-        private readonly TextLayout _cursorPrefixLayout;
-        private readonly int _cursorOffset;
-        private readonly IReadOnlyList<ImePreeditClause> _clauses;
-
-        public PreeditCursorTextRun(
-            ReadOnlyMemory<char> text,
-            int cursorOffset,
-            ImePreeditClause clause,
-            TextRunProperties properties)
-        {
-            Text = text;
-            Properties = properties ?? throw new ArgumentNullException(nameof(properties));
-            _cursorOffset = Math.Max(0, Math.Min(cursorOffset, text.Length));
-            _clauses = CreateLocalClauses(clause, text.Length);
-
-            var foreground = Properties.ForegroundBrush ?? Brushes.Black;
-            var value = text.ToString();
-            _layout = new TextLayout(
-                value,
-                Properties.Typeface,
-                Properties.FontRenderingEmSize,
-                foreground,
-                textWrapping: TextWrapping.NoWrap);
-            _cursorPrefixLayout = new TextLayout(
-                value.Substring(0, _cursorOffset),
-                Properties.Typeface,
-                Properties.FontRenderingEmSize,
-                foreground,
-                textWrapping: TextWrapping.NoWrap);
-        }
-
-        public override ReadOnlyMemory<char> Text { get; }
-
-        public override TextRunProperties Properties { get; }
-
-        public override int Length => Text.Length;
-
-        public override double Baseline => _layout.Baseline;
-
-        public override Size Size => new Size(
-            Math.Max(0, _layout.WidthIncludingTrailingWhitespace),
-            Math.Max(1, _layout.Height));
-
-        public override void Draw(DrawingContext drawingContext, Point origin)
-        {
-            _layout.Draw(drawingContext, origin);
-
-            var foreground = Properties.ForegroundBrush ?? Brushes.Black;
-            PreeditDecorationRenderer.DrawUnderlines(
-                drawingContext,
-                origin,
-                Text.ToString(),
-                _layout,
-                Properties.Typeface,
-                Properties.FontRenderingEmSize,
-                foreground,
-                _clauses);
-
-            var cursorX = origin.X + _cursorPrefixLayout.WidthIncludingTrailingWhitespace;
-            drawingContext.DrawLine(
-                new ImmutablePen(foreground.ToImmutable(), 1),
-                new Point(cursorX, origin.Y),
-                new Point(cursorX, origin.Y + Size.Height));
-        }
-
-        private static IReadOnlyList<ImePreeditClause> CreateLocalClauses(
-            ImePreeditClause clause,
-            int textLength)
-        {
-            if (clause == null)
-                return null;
-
-            return new[]
-            {
-                new ImePreeditClause(
-                    0,
-                    textLength,
-                    clause.UnderlineStyle,
-                    clause.UnderlineBrush)
-            };
-        }
-    }
 }

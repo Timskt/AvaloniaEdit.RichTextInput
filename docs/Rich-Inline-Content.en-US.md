@@ -112,7 +112,7 @@ It constructs a line containing a tall object and a small baseline-aligned objec
 
 ## 8. Compatibility
 
-- `ava12-feat`: Avalonia 12.0.0 compatibility branch, `net8.0`/`net10.0` library targets.
+- `ava12-feat`: Avalonia 12.1.1 compatibility branch, `net8.0`/`net10.0` library targets.
 - `ava11-feat`: Avalonia 11.0.10, `netstandard2.0`/`net6.0` library targets.
 
 The public rich-input concepts are the same on both branches; only Avalonia API and target-framework details differ.

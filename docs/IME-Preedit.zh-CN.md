@@ -550,10 +550,14 @@ dotnet run --project src/AvaloniaEdit.Demo/AvaloniaEdit.Demo.csproj
 Avalonia 12 分支使用：
 
 ```text
-Avalonia 12.0.0
+Avalonia 12.1.1
 TargetFramework: net8.0; net10.0
 Solution: AvaloniaEdit.slnx
 ```
+
+Avalonia 12 分支要求至少使用 `12.1.1`。该版本包含 macOS 原生 IME 的
+`replacementRange`、surrounding-text selection 同步及焦点切换 preedit 修复；继续使用
+`12.0.0` 可能导致 Apple 简体拼音在组合文本换行后只显示拼音、候选或已转换中文不可见。
 
 构建：
 
