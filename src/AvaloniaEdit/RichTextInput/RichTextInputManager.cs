@@ -738,7 +738,16 @@ namespace AvaloniaEdit.RichTextInput
         {
             _textArea = textArea ?? throw new ArgumentNullException(nameof(textArea));
             _generator = new RichTextInlineObjectGenerator(this);
-            ElementFactory = CreateDefaultElement;
+            // Keep the built-in emoji renderer in sync with the editor's text metrics.
+            // A fixed 18px emoji control makes an otherwise ordinary text line taller and
+            // visually lifts the emoji above adjacent glyphs. The factory reads the current
+            // TextView font size so runtime font/theme changes are reflected as well.
+            ElementFactory = item => CreateDefaultElement(
+                item,
+                220,
+                180,
+                120,
+                GetEditorFontSize());
             ConvertImageFilesToImages = true;
 
             _textArea.TextView.ElementGenerators.Add(_generator);
@@ -1147,7 +1156,14 @@ namespace AvaloniaEdit.RichTextInput
             if (element == null && factory != null)
                 element = factory(item);
             if (element == null)
-                element = CreateDefaultElement(item, context.AvailableWidth, MaxImageWidth, MaxImageHeight);
+            {
+                element = CreateDefaultElement(
+                    item,
+                    context.AvailableWidth,
+                    MaxImageWidth,
+                    MaxImageHeight,
+                    GetEditorFontSize());
+            }
             return EnableContentPointerInteractions ? new RichTextInlineContentControl(this, item, element) : element;
         }
 
@@ -1192,7 +1208,15 @@ namespace AvaloniaEdit.RichTextInput
 
         public InlineObjectVerticalAlignment GetInlineObjectAlignment(RichTextContentItem item)
         {
-            return InlineObjectAlignmentSelector?.Invoke(item) ?? InlineObjectAlignment;
+            if (InlineObjectAlignmentSelector != null)
+                return InlineObjectAlignmentSelector(item);
+
+            // Emoji is text-like content. Baseline alignment prevents the emoji control
+            // from being bottom-aligned to a line box expanded by a neighboring image or
+            // custom control, which otherwise makes the glyph appear vertically displaced.
+            return item != null && item.Content.Kind == RichTextContentKind.Emoji
+                ? InlineObjectVerticalAlignment.Baseline
+                : InlineObjectAlignment;
         }
 
         public double GetInlineObjectBaselineOffset(RichTextContentItem item)
@@ -3341,16 +3365,29 @@ namespace AvaloniaEdit.RichTextInput
 
         public static Control CreateDefaultElement(RichTextContentItem item)
         {
-            return CreateDefaultElement(item, 220, 180, 120);
+            return CreateDefaultElement(item, 220, 180, 120, 12);
         }
 
-        private static Control CreateDefaultElement(RichTextContentItem item, double maxInlineWidth, double maxImageWidth, double maxImageHeight)
+        private double GetEditorFontSize()
+        {
+            var fontSize = _textArea.TextView.FontSize;
+            return double.IsNaN(fontSize) || double.IsInfinity(fontSize) || fontSize <= 0
+                ? 12
+                : fontSize;
+        }
+
+        private static Control CreateDefaultElement(
+            RichTextContentItem item,
+            double maxInlineWidth,
+            double maxImageWidth,
+            double maxImageHeight,
+            double fontSize)
         {
             if (item.Content.Kind == RichTextContentKind.Image && item.Content.Value is Bitmap bitmap)
                 return CreateImageElement(bitmap, item.Content.DisplayText, Math.Min(maxImageWidth, maxInlineWidth), maxImageHeight);
 
             if (item.Content.Kind == RichTextContentKind.Emoji)
-                return CreateEmojiElement(item.Content.DisplayText);
+                return CreateEmojiElement(item.Content.DisplayText, fontSize);
 
             return CreateFileLikeElement(item.Content, maxInlineWidth);
         }
@@ -3378,12 +3415,12 @@ namespace AvaloniaEdit.RichTextInput
             };
         }
 
-        private static Control CreateEmojiElement(string emoji)
+        private static Control CreateEmojiElement(string emoji, double fontSize)
         {
             return new TextBlock
             {
                 Text = emoji,
-                FontSize = 18,
+                FontSize = fontSize,
                 VerticalAlignment = VerticalAlignment.Center,
                 Margin = new Thickness(1, 0)
             };
@@ -3489,16 +3526,25 @@ namespace AvaloniaEdit.RichTextInput
         }
     }
 
-    internal sealed class RichTextInlineContentControl : Border
+    internal sealed class RichTextInlineContentControl : Grid
     {
         private readonly RichTextInputManager _manager;
         private readonly RichTextContentItem _item;
+        private readonly Border _backgroundChrome;
+        private readonly Border _contentHost;
+        private readonly Border _selectionChrome;
 
         public RichTextInlineContentControl(RichTextInputManager manager, RichTextContentItem item, Control content)
         {
             _manager = manager;
             _item = item;
-            Child = content;
+            Child = content ?? throw new ArgumentNullException(nameof(content));
+            _backgroundChrome = new Border { IsHitTestVisible = false };
+            _contentHost = new Border { Child = Child };
+            _selectionChrome = new Border { IsHitTestVisible = false };
+            Children.Add(_backgroundChrome);
+            Children.Add(_contentHost);
+            Children.Add(_selectionChrome);
             Focusable = false;
             Classes.Add("rich-text-inline-content");
             UpdateSelection();
@@ -3514,6 +3560,8 @@ namespace AvaloniaEdit.RichTextInput
             AddHandler(ContextRequestedEvent, OnContextRequested, RoutingStrategies.Bubble, handledEventsToo: true);
             DetachedFromVisualTree += OnDetachedFromVisualTree;
         }
+
+        public Control Child { get; }
 
         private void OnPointerPressedRouted(object sender, PointerPressedEventArgs e)
         {
@@ -3566,11 +3614,15 @@ namespace AvaloniaEdit.RichTextInput
         {
             var selected = _manager.IsContentSelected(_item);
             var style = _manager.GetInlineContentStyle(_item, selected);
-            Background = style.Background;
-            BorderBrush = style.BorderBrush;
-            BorderThickness = style.BorderThickness;
-            CornerRadius = style.CornerRadius;
-            Padding = style.Padding;
+            // Selection chrome is layered over the content instead of wrapping it.
+            // A transparent one-pixel Border must not add two layout pixels to every
+            // inline object or make selecting an item change the surrounding line height.
+            _backgroundChrome.Background = style.Background;
+            _backgroundChrome.CornerRadius = style.CornerRadius;
+            _contentHost.Padding = style.Padding;
+            _selectionChrome.BorderBrush = style.BorderBrush;
+            _selectionChrome.BorderThickness = style.BorderThickness;
+            _selectionChrome.CornerRadius = style.CornerRadius;
             Classes.Set("selected", selected);
         }
 
