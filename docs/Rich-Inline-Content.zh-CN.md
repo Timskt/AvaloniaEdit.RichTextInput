@@ -53,6 +53,8 @@ foreach (var item in manager.GetItemsInDocumentOrder()
 
 这样点击 Button 后再按 Backspace/Delete，仍能正确选中并删除对应 marker。wrapper 脱离视觉树时也会移除这些 routed-event handler，避免旧视觉树和对象被错误保留。
 
+wrapper 使用分层 `Grid`，而不是会参与尺寸计算的外层 `Border`。背景和 selection border 作为 overlay chrome 叠加，只有内容 host（以及业务明确配置的 style padding）参与 inline object 的期望尺寸。因此，选中 item 不会额外增加 border 像素，不会改变 visual row 高度，也不会推动相邻文字或 caret。
+
 ## 5. 垂直对齐规则
 
 这里有两个不同的坐标系：
@@ -62,14 +64,20 @@ foreach (var item in manager.GetItemsInDocumentOrder()
 
 同一行的高图片或卡片可能把 line box 撑得很高。因此，如果把小按钮配置为 `Center`，它出现在高图片的垂直中间是符合该配置的结果，并不是 renderer 的计算错误。
 
-Demo 现在对 `Click me` 使用 `Bottom`：
+内置 emoji factory 使用编辑器当前 `FontSize`、上下为零的 margin，以及 `Baseline` 对齐。这样默认 emoji 不会制造额外上下空白，也不会把普通文字行无故撑高。自定义 `ElementFactory` 如果返回更大字号/控件或非零垂直 margin，仍然可以按业务需要主动撑高行。
+
+Demo 现在对 `Click me` 使用 `Bottom`，对 emoji 使用 `Baseline`：
 
 ```csharp
 manager.InlineObjectAlignmentSelector = item =>
     item.Content.StyleKey == "demo-button"
         ? InlineObjectVerticalAlignment.Bottom
-        : manager.InlineObjectAlignment;
+        : item.Content.Kind == RichTextContentKind.Emoji
+            ? InlineObjectVerticalAlignment.Baseline
+            : manager.InlineObjectAlignment;
 ```
+
+`InlineObjectAlignmentSelector` 拥有最终决定权。应用一旦设置 selector，如果仍希望 emoji 使用 baseline，就需要在 selector 中明确保留这一规则。
 
 这是刻意的设计：按钮位于完整 line box 的底部。renderer 会把文字、光标和 IME preedit 放在同一行的文字内容区域底部，避免高 inline 对象把它们错误地推到行顶。图片仍然可以按业务需要使用 `Bottom`、`Center` 或其他对齐方式。
 
@@ -83,10 +91,12 @@ renderer 还会把对象限制在当前 line box 内。高度超过 line 的大�
 2. 按 **Enter** 后单独添加按钮，确认单独一行布局正常。
 3. 选中按钮按 Backspace 或 Delete；只能删除按钮。
 4. 在按钮前后插入 emoji，删除按钮后确认两个 emoji 顺序和显示都不变。
-5. 添加多个按钮，点击 **Clear controls**；emoji 和图片必须保留。
-6. 对插入和删除分别测试 Undo/Redo。
-7. 在富内容前后进行中文/日文 IME 输入；preedit 不应变成富内容 marker。
-8. 粘贴/拖放图片和文件，再在同一进程内复制粘贴，确认平台支持时富内容元数据仍能保留。
+5. 把 emoji 放在没有高对象的普通文字旁边；emoji 字体度量和行高应跟随编辑器文字，不能出现额外上下空白。
+6. 添加多个按钮，点击 **Clear controls**；emoji 和图片必须保留。
+7. 对插入和删除分别测试 Undo/Redo。
+8. 分别从第一行和第二个文档行输入长中文拼音；Inline preedit 必须在后续 visual row 持续换行。
+9. 在富内容前后进行中文/日文 IME 输入；preedit 不应变成富内容 marker。
+10. 粘贴/拖放图片和文件，再在同一进程内复制粘贴，确认平台支持时富内容元数据仍能保留。
 
 ## 7. 自动化测试
 
@@ -98,7 +108,7 @@ dotnet test test/AvaloniaEdit.Tests/AvaloniaEdit.Tests.csproj \
   --filter FullyQualifiedName~Inline_Object_Baseline_Remains_Text_Aligned_When_Tall_Sibling_Expands_Line
 ```
 
-测试构造了“高对象 + 小型 baseline 对齐对象”的同一行，并验证小对象使用 baseline 公式，而不是使用整行 center 公式。混合高度回归测试还验证：底部对齐的按钮和高对象共享行底部，而普通文字、光标几何位置以及 IME preedit baseline 仍位于文字内容区域内。富输入测试还覆盖 marker 删除、emoji 保留、Backspace/Delete 和 anchor 移动。
+测试构造了“高对象 + 小型 baseline 对齐对象”的同一行，并验证小对象使用 baseline 公式，而不是使用整行 center 公式。混合高度回归测试还验证：底部对齐的按钮和高对象共享行底部，而普通文字、光标几何位置以及 IME preedit baseline 仍位于文字内容区域内。富输入测试还覆盖 marker 删除、emoji 保留、Backspace/Delete、anchor 移动、emoji 跟随编辑器字号、baseline 对齐，以及普通行不会被默认 emoji 撑高。
 
 ## 8. 版本兼容
 

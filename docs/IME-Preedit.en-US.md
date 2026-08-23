@@ -142,10 +142,13 @@ editor.TextArea.ImePreeditDisplayMode = ImePreeditDisplayMode.Inline;
 Inline mode creates a temporary visual-line element at the caret:
 
 - it pushes body text after the caret;
-- it participates in visual-line measurement and wrapping;
+- it participates in visual-line measurement and soft wrapping across every visual row, including compositions that start on the second or a later document line;
+- `\r\n` and `\n` inside the composition produce hard visual-row breaks;
 - its position matches the position of the eventual committed text;
 - it does not modify the document;
-- the normal editor caret is hidden while the preedit text run draws the composition cursor.
+- the normal editor caret is hidden while the preedit cursor run draws the composition cursor.
+
+Inline soft wrapping follows the editor's normal wrapping policy. Set `editor.WordWrap = true`, or set `((ILogicalScrollable)editor.TextArea.TextView).CanHorizontallyScroll = false`, when a long unbroken pinyin/composition string must wrap at the viewport edge. With wrapping disabled, horizontal growth/scrolling is expected.
 
 This is the recommended default for text boxes, chat inputs, and editors where composition must align exactly with body text.
 
@@ -392,13 +395,18 @@ src/AvaloniaEdit/Rendering/PreeditTextElementGenerator.cs
 
 The Inline generator constructs one temporary `PreeditTextElement` at the caret offset. The element:
 
-- uses the visual-line element length mechanism to push following body text;
-- creates a `PreeditTextRun`;
-- draws preedit with `TextLayout`;
-- draws the cursor at the measured width of the cursor prefix;
-- reuses the clause decoration renderer for underlines.
+- reports the real UTF-16 composition length as `VisualLength`, allowing the text formatter to split and wrap the composition normally;
+- keeps `DocumentLength` equal to `0`, so composition text never enters the document;
+- returns ordinary `TextCharacters` runs for most composition text so long pinyin and other unbroken strings can wrap on every visual row;
+- uses one `PreeditCursorTextRun` only for the complete grapheme cluster that contains the cursor, so the cursor is drawn exactly once;
+- normalizes a cursor offset that lands inside a surrogate pair or combining sequence to a safe grapheme boundary;
+- keeps clause and cursor ranges in UTF-16 offsets;
+- supplies the real composition prefix from `GetPrecedingText`, which is required for correct bidi and wrapping behavior;
+- supports `\r\n` and `\n` hard breaks without changing the document.
 
-The element length is a layout placeholder, not document character length. Consequently, preedit does not change `Document.TextLength`, document offsets, or undo history.
+Runs are segmented on .NET text-element boundaries, so an emoji, surrogate pair, or combining sequence such as `e\u0301` is not split merely to host the cursor. Clause underline properties are attached to the corresponding segments; the cursor-host run redraws the local clause underline with its own `TextLayout`.
+
+`VisualLength` is a visual/layout length, while `DocumentLength` remains zero. Consequently, preedit can occupy multiple visual rows without changing `Document.TextLength`, document offsets, serialization, selection contents, or undo history.
 
 ## 12. Application guidance
 

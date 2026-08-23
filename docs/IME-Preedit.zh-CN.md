@@ -142,10 +142,13 @@ editor.TextArea.ImePreeditDisplayMode = ImePreeditDisplayMode.Inline;
 Inline 模式把 preedit 作为临时 visual line element 放在 caret 处：
 
 - 会推动 caret 后面的正文布局；
-- 会跟随正常的 visual line、换行和文本测量；
+- 会参与正常的 visual line 测量，并能跨每一个 visual row 软换行，包括从第二个或更后面的文档行开始输入的长组合文本；
+- 组合文本中的 `\r\n` 和 `\n` 会产生明确的 visual row 硬换行；
 - 组合文本位置与最终 commit 后的正文位置一致；
 - 不会修改文档；
-- 编辑器 caret 在组合期间隐藏，由 preedit text run 绘制组合 cursor。
+- 编辑器 caret 在组合期间隐藏，由 preedit cursor run 绘制组合 cursor。
+
+Inline 软换行遵循编辑器自身的换行策略。需要长拼音/长组合文本在 viewport 右边界换行时，请设置 `editor.WordWrap = true`，或者设置 `((ILogicalScrollable)editor.TextArea.TextView).CanHorizontallyScroll = false`。如果关闭换行，组合文本横向增长或触发横向滚动属于预期行为。
 
 这是推荐的默认模式，尤其适合普通文本框、聊天输入框以及需要与正文严格对齐的编辑器。
 
@@ -392,13 +395,18 @@ src/AvaloniaEdit/Rendering/PreeditTextElementGenerator.cs
 
 Inline generator 只在 caret offset 处构造一个临时 `PreeditTextElement`。该元素：
 
-- 使用 `VisualLineElement` 的长度占位机制推动后续正文；
-- 生成一个 `PreeditTextRun`；
-- 使用 `TextLayout` 绘制 preedit；
-- 在 cursor prefix 的测量宽度处绘制 cursor；
-- 复用 clause decoration renderer 绘制 underline。
+- 使用组合文本真实的 UTF-16 长度作为 `VisualLength`，让 text formatter 可以正常拆分和换行；
+- 始终保持 `DocumentLength = 0`，组合文本绝不会进入文档；
+- 对大部分组合文本返回普通 `TextCharacters` run，使长拼音和其他无空格组合文本可以在每个 visual row 继续换行；
+- 只对 cursor 所在的完整 grapheme cluster 使用一个 `PreeditCursorTextRun`，保证 cursor 只绘制一次；
+- 当 cursor offset 落在 surrogate pair 或 combining sequence 内部时，把它规范到安全的 grapheme 边界；
+- clause 和 cursor 范围都使用 UTF-16 offset；
+- `GetPrecedingText` 返回真实组合文本前缀，保证 bidi 和换行判断正确；
+- 支持 `\r\n`、`\n` 硬换行，但不修改文档。
 
-由于元素长度是布局占位而不是文档字符长度，preedit 不会改变 `Document.TextLength`、文档 offset 或 undo history。
+run 按 .NET text element 边界分段，因此 emoji、surrogate pair 或 `e\u0301` 这样的 combining sequence 不会仅仅为了放置 cursor 而被拆开。clause underline 属性附着在对应 segment 上；cursor host run 使用自己的 `TextLayout` 重绘局部 clause underline。
+
+`VisualLength` 是视觉/布局长度，而 `DocumentLength` 恒为零。因此 preedit 即使占据多个 visual row，也不会改变 `Document.TextLength`、文档 offset、序列化内容、选区文本或 undo history。
 
 ## 12. 应用层建议
 

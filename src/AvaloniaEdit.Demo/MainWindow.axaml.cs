@@ -89,7 +89,9 @@ namespace AvaloniaEdit.Demo
                 // when a button or a tall image expands the row.
                 IsDemoButton(item.Content)
                     ? InlineObjectVerticalAlignment.Bottom
-                    : _richTextInputManager.InlineObjectAlignment;
+                    : item.Content.Kind == RichTextContentKind.Emoji
+                        ? InlineObjectVerticalAlignment.Baseline
+                        : _richTextInputManager.InlineObjectAlignment;
             _richTextInputManager.ContentPointerPressed += RichTextInputManager_ContentPointerPressed;
             _richTextInputManager.ContentDoubleTapped += RichTextInputManager_ContentDoubleTapped;
             _richTextInputManager.ContentContextRequested += RichTextInputManager_ContentContextRequested;
@@ -305,7 +307,9 @@ namespace AvaloniaEdit.Demo
             return new TextBlock
             {
                 Text = item.Content.DisplayText,
-                FontSize = item.Content.Kind == RichTextContentKind.Emoji ? 18 : 12,
+                FontSize = item.Content.Kind == RichTextContentKind.Emoji
+                    ? Editor.FontSize
+                    : 12,
                 VerticalAlignment = VerticalAlignment.Center,
                 Margin = new Thickness(1, 0)
             };

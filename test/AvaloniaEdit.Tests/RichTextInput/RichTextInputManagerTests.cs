@@ -206,9 +206,10 @@ namespace AvaloniaEdit.Tests.RichTextInput
             Assert.IsTrue(manager.TryGetItem(0, out var item));
             var control = manager.CreateElement(item);
 
-            Assert.IsInstanceOf<Border>(control);
-            Assert.IsInstanceOf<Button>(((Border)control).Child);
-            Assert.AreEqual("styled.file", ((Button)((Border)control).Child).Content);
+            Assert.IsInstanceOf<RichTextInlineContentControl>(control);
+            var wrapper = (RichTextInlineContentControl)control;
+            Assert.IsInstanceOf<Button>(wrapper.Child);
+            Assert.AreEqual("styled.file", ((Button)wrapper.Child).Content);
         }
 
         [AvaloniaTest]
@@ -640,6 +641,59 @@ namespace AvaloniaEdit.Tests.RichTextInput
         }
 
         [AvaloniaTest]
+        public void EmojiUsesEditorTextMetricsAndBaselineAlignment()
+        {
+            var textArea = CreateTextArea("a");
+            textArea.TextView.FontSize = 16;
+            var manager = RichTextInputManager.Install(textArea);
+            manager.EnableContentPointerInteractions = false;
+            var emoji = manager.InsertEmoji("😀");
+
+            textArea.Measure(new Size(300, 100));
+            textArea.Arrange(new Rect(0, 0, 300, 100));
+            var visualLine = textArea.TextView.GetOrConstructVisualLine(textArea.Document.Lines[0]);
+            var run = visualLine.TextLines.SelectMany(line => line.TextRuns)
+                .OfType<InlineObjectRun>()
+                .Single();
+            var textBlock = (TextBlock)run.Element;
+
+            Assert.AreEqual(textArea.TextView.FontSize, textBlock.FontSize);
+            Assert.AreEqual(InlineObjectVerticalAlignment.Baseline, run.VerticalAlignment);
+        }
+
+        [AvaloniaTest]
+        public void WrappedEmojiUsesEditorTextMetricsWithoutExpandingOrdinaryLine()
+        {
+            var plainTextArea = CreateTextArea("a");
+            plainTextArea.TextView.FontSize = 16;
+            plainTextArea.Measure(new Size(300, 100));
+            plainTextArea.Arrange(new Rect(0, 0, 300, 100));
+            var plainLineHeight = plainTextArea.TextView
+                .GetOrConstructVisualLine(plainTextArea.Document.Lines[0])
+                .Height;
+
+            var textArea = CreateTextArea("a");
+            textArea.TextView.FontSize = 16;
+            var manager = RichTextInputManager.Install(textArea);
+            manager.InsertEmoji("😀");
+
+            textArea.Measure(new Size(300, 100));
+            textArea.Arrange(new Rect(0, 0, 300, 100));
+            var visualLine = textArea.TextView.GetOrConstructVisualLine(textArea.Document.Lines[0]);
+            var run = visualLine.TextLines.SelectMany(line => line.TextRuns)
+                .OfType<InlineObjectRun>()
+                .Single();
+            var wrapper = (RichTextInlineContentControl)run.Element;
+            var textBlock = (TextBlock)wrapper.Child;
+
+            Assert.AreEqual(textArea.TextView.FontSize, textBlock.FontSize);
+            Assert.AreEqual(0, textBlock.Margin.Top);
+            Assert.AreEqual(0, textBlock.Margin.Bottom);
+            Assert.AreEqual(InlineObjectVerticalAlignment.Baseline, run.VerticalAlignment);
+            Assert.LessOrEqual(visualLine.Height, plainLineHeight + 0.01);
+        }
+
+        [AvaloniaTest]
         public void RichTextInputDefaultsToBottomAlignmentAndAllowsPerItemOverride()
         {
             var textArea = CreateTextArea("");
@@ -705,7 +759,8 @@ namespace AvaloniaEdit.Tests.RichTextInput
             var item = manager.InsertCustom("A001", new object(), "order-card");
 
             var control = manager.CreateElement(item);
-            var button = (Button)((Border)control).Child;
+            Assert.IsInstanceOf<RichTextInlineContentControl>(control);
+            var button = (Button)((RichTextInlineContentControl)control).Child;
 
             Assert.AreEqual("order-card:A001:True", button.Content);
         }
@@ -1139,7 +1194,7 @@ namespace AvaloniaEdit.Tests.RichTextInput
             Assert.GreaterOrEqual(preeditIndex, 0);
             Assert.Greater(richContentIndex, preeditIndex);
             Assert.AreEqual(0, elements[preeditIndex].DocumentLength);
-            Assert.AreEqual(1, elements[preeditIndex].VisualLength);
+            Assert.AreEqual("zhong".Length, elements[preeditIndex].VisualLength);
         }
 
         [AvaloniaTest]
@@ -1156,7 +1211,7 @@ namespace AvaloniaEdit.Tests.RichTextInput
 
                 Assert.AreEqual("ab", textArea.Document.Text);
                 Assert.AreEqual(0, preedit.DocumentLength);
-                Assert.AreEqual(1, preedit.VisualLength);
+                Assert.AreEqual(preedit.Text.Length, preedit.VisualLength);
             }
         }
 
