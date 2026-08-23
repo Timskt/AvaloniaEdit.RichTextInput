@@ -863,6 +863,51 @@ namespace AvaloniaEdit.Rendering
         }
 
         /// <summary>
+        /// Gets the current inline IME composition cursor rectangle in document coordinates.
+        /// This method intentionally only uses an already-built visual line so callers from
+        /// layout/render notifications cannot re-enter visual-line construction.
+        /// </summary>
+        internal bool TryGetImePreeditCursorRectangle(out Rect rectangle)
+        {
+            rectangle = default;
+
+            var textArea = Services.GetService<TextArea>();
+            if (_document == null || textArea?.Caret == null)
+                return false;
+
+            var visualLine = GetVisualLine(textArea.Caret.Line);
+            if (visualLine == null || visualLine.IsDisposed)
+                return false;
+
+            var preedit = visualLine.Elements.OfType<PreeditTextElement>().SingleOrDefault();
+            if (preedit == null)
+                return false;
+
+            var visualColumn = preedit.VisualColumn + preedit.RenderedCursorOffset;
+
+            try
+            {
+                // At an exact soft-wrap boundary the composition cursor belongs to the next
+                // row. Passing false provides that behavior; the end of the complete visual
+                // line is still mapped to the final TextLine by VisualLine.GetTextLine().
+                var textLine = visualLine.GetTextLine(visualColumn, isAtEndOfLine: false);
+                var x = visualLine.GetTextLineVisualXPosition(textLine, visualColumn);
+                var top = visualLine.GetTextLineVisualYPosition(textLine, VisualYPosition.TextTop);
+                var bottom = visualLine.GetTextLineVisualYPosition(textLine, VisualYPosition.TextBottom);
+                rectangle = new Rect(x, top, 1, Math.Max(1, bottom - top));
+                return true;
+            }
+            catch (ArgumentOutOfRangeException)
+            {
+                return false;
+            }
+            catch (InvalidOperationException)
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
         /// Gets the visual line that contains the document line with the specified number.
         /// If that line is outside the visible range, a new VisualLine for that document line is constructed.
         /// </summary>
@@ -1252,6 +1297,18 @@ namespace AvaloniaEdit.Rendering
                     effectiveParagraphProperties,
                     lastLineBreak
                 );
+
+                if (textLine == null)
+                {
+                    throw new InvalidOperationException(
+                        $"The text formatter returned no line at visual column {textOffset}.");
+                }
+
+                if (textLine.Length <= 0)
+                {
+                    throw new InvalidOperationException(
+                        $"The text formatter made no progress at visual column {textOffset}.");
+                }
 
                 textLines.Add(textLine);
                 textOffset += textLine.Length;

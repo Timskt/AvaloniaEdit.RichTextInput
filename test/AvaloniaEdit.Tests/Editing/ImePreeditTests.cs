@@ -9,6 +9,7 @@ using Avalonia.Input;
 using Avalonia.Input.TextInput;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
+using Avalonia.Media.TextFormatting;
 using Avalonia.VisualTree;
 using AvaloniaEdit.Document;
 using AvaloniaEdit.Editing;
@@ -311,6 +312,93 @@ namespace AvaloniaEdit.Tests.Editing
         }
 
         [Avalonia.Headless.NUnit.AvaloniaTest]
+        public void InlinePreeditUsesRemainingWidthAndConsumesAllText()
+        {
+            var textArea = CreateTextArea("prefix中文suffix");
+            textArea.Width = 160;
+            textArea.Height = 320;
+            textArea.Caret.Offset = "prefix".Length;
+            textArea.ImePreeditDisplayMode = ImePreeditDisplayMode.Inline;
+            ((ILogicalScrollable)textArea.TextView).CanHorizontallyScroll = true;
+            ArrangeTextView(textArea, 160, 320);
+
+            const string preedit = "zhonghuarenmingongheguozhonghuarenmingongheguo";
+            textArea.SetImePreeditText(preedit, preedit.Length);
+            ArrangeTextView(textArea, 160, 320);
+
+            var visualLine = textArea.TextView.GetOrConstructVisualLine(textArea.Document.Lines[0]);
+            var consumedLength = visualLine.TextLines.Sum(line => line.Length);
+            var firstLine = visualLine.TextLines[0];
+            var renderedText = string.Concat(
+                visualLine.TextLines.SelectMany(line => line.TextRuns).Select(run => run.Text.ToString()));
+            Assert.GreaterOrEqual(consumedLength, visualLine.VisualLengthWithEndOfLineMarker);
+            Assert.That(visualLine.TextLines,
+                Has.All.Matches<Avalonia.Media.TextFormatting.TextLine>(line => line.Length > 0));
+            Assert.AreEqual("prefix" + preedit + "中文suffix", renderedText,
+                "Wrapped preedit must not hide either the composition or following document text.");
+            Assert.GreaterOrEqual(
+                firstLine.WidthIncludingTrailingWhitespace,
+                160 - textArea.TextView.WideSpaceWidth,
+                "The composition should fill the first row up to approximately one glyph before wrapping.");
+        }
+
+        [Avalonia.Headless.NUnit.AvaloniaTest]
+        public void InlinePreeditIncrementalGrowthAlwaysMakesFormattingProgress()
+        {
+            var textArea = CreateTextArea("prefix中文suffix");
+            textArea.Width = 48;
+            textArea.Height = 600;
+            textArea.Caret.Offset = "prefix".Length;
+            textArea.ImePreeditDisplayMode = ImePreeditDisplayMode.Inline;
+            ((ILogicalScrollable)textArea.TextView).CanHorizontallyScroll = true;
+            ArrangeTextView(textArea, 48, 600);
+
+            for (var length = 1; length <= 256; length++)
+            {
+                var preedit = new string('a', length);
+                textArea.SetImePreeditText(preedit, preedit.Length);
+                ArrangeTextView(textArea, 48, 600);
+
+                var visualLine = textArea.TextView.GetOrConstructVisualLine(textArea.Document.Lines[0]);
+                Assert.That(visualLine.TextLines, Has.All.Matches<Avalonia.Media.TextFormatting.TextLine>(line => line.Length > 0),
+                    $"Formatter stopped making progress at preedit length {length}.");
+                Assert.GreaterOrEqual(visualLine.TextLines.Sum(line => line.Length), visualLine.VisualLengthWithEndOfLineMarker,
+                    $"Formatting lost text at preedit length {length}.");
+                var renderedText = string.Concat(
+                    visualLine.TextLines.SelectMany(line => line.TextRuns).Select(run => run.Text.ToString()));
+                Assert.AreEqual("prefix" + preedit + "中文suffix", renderedText,
+                    $"Composition or following Chinese text disappeared at preedit length {length}.");
+            }
+        }
+
+        [Avalonia.Headless.NUnit.AvaloniaTest]
+        public void InlinePreeditCursorRectangleTracksWrappedCompositionCursor()
+        {
+            var textArea = CreateTextArea("a");
+            textArea.Width = 48;
+            textArea.Height = 320;
+            textArea.Caret.Offset = textArea.Document.TextLength;
+            textArea.ImePreeditDisplayMode = ImePreeditDisplayMode.Inline;
+            ((ILogicalScrollable)textArea.TextView).CanHorizontallyScroll = true;
+            ArrangeTextView(textArea, 48, 320);
+            AttachImeClient(textArea);
+            var documentCaretRectangle = textArea.Caret.CalculateCaretRectangle();
+
+            const string preedit = "zhonghuarenmingongheguo";
+            textArea.SetImePreeditText(preedit, preedit.Length);
+            ArrangeTextView(textArea, 48, 320);
+
+            var client = GetImeClient(textArea);
+            Assert.Greater(client.CursorRectangle.Y, documentCaretRectangle.Y,
+                "The native IME anchor should follow the wrapped composition cursor, not stay at the document caret.");
+
+            var layer = GetPreeditLayer(textArea);
+            RenderLayer(layer, 48, 320);
+            Assert.AreEqual(1, layer.LastRenderedCursorCount,
+                "Inline composition should render exactly one cursor after wrapping.");
+        }
+
+        [Avalonia.Headless.NUnit.AvaloniaTest]
         public void InlinePreeditWrapsOnlyItsSecondDocumentLineWhenHorizontalScrollingIsEnabled()
         {
             var longBodyLine = new string('x', 80);
@@ -398,12 +486,12 @@ namespace AvaloniaEdit.Tests.Editing
             var visualLine = textArea.TextView.GetOrConstructVisualLine(textArea.Document.Lines[0]);
             var preedit = visualLine.Elements.OfType<PreeditTextElement>().Single();
             var runs = visualLine.TextLines.SelectMany(line => line.TextRuns).ToArray();
-            var cursorRuns = runs.OfType<PreeditCursorTextRun>().ToArray();
+            var renderedText = string.Concat(runs.Select(run => run.Text.ToString()));
 
             Assert.AreEqual(preeditText.Length, preedit.VisualLength);
             Assert.AreEqual(2, preedit.RenderedCursorOffset);
-            Assert.AreEqual(1, cursorRuns.Length);
-            Assert.AreEqual("e\u0301", cursorRuns[0].Text.ToString());
+            Assert.AreEqual("a" + preeditText, renderedText);
+            Assert.That(runs, Has.All.Matches<TextRun>(run => run.Length > 0));
             Assert.GreaterOrEqual(visualLine.TextLines.Count, 3);
         }
 
@@ -425,6 +513,10 @@ namespace AvaloniaEdit.Tests.Editing
             var visualLine = textArea.TextView.GetOrConstructVisualLine(textArea.Document.Lines[0]);
             Assert.GreaterOrEqual(visualLine.TextLines.Count, 3);
             Assert.AreEqual(preeditText.Length, visualLine.Elements.OfType<PreeditTextElement>().Single().VisualLength);
+            Assert.That(visualLine.TextLines, Has.All.Matches<TextLine>(line => line.Length > 0));
+            Assert.GreaterOrEqual(
+                visualLine.TextLines.Sum(line => line.Length),
+                visualLine.VisualLengthWithEndOfLineMarker);
         }
 
         [Avalonia.Headless.NUnit.AvaloniaTest]
@@ -527,6 +619,122 @@ namespace AvaloniaEdit.Tests.Editing
         }
 
         [Avalonia.Headless.NUnit.AvaloniaTest]
+        public void ImeClientReportsCurrentLineAndLineRelativeSelection()
+        {
+            var textArea = CreateTextArea("first\nprefix中文suffix\nthird");
+            var line = textArea.Document.GetLineByNumber(2);
+            textArea.Caret.Offset = line.Offset + 7;
+            textArea.Selection = Selection.Create(textArea, line.Offset + 1, line.Offset + 8);
+
+            var client = GetImeClient(textArea);
+
+            Assert.AreEqual("prefix中文suffix", client.SurroundingText);
+            Assert.AreEqual(1, client.Selection.Start);
+            Assert.AreEqual(8, client.Selection.End);
+        }
+
+        [Avalonia.Headless.NUnit.AvaloniaTest]
+        public void ImeClientRaisesSelectionChangedWhenSelectionChangesWithoutMovingCaret()
+        {
+            var textArea = CreateTextArea("prefix中文suffix");
+            textArea.Caret.Offset = 6;
+            AttachImeClient(textArea);
+            var client = GetImeClient(textArea);
+            var eventCount = 0;
+            client.SelectionChanged += (_, _) => eventCount++;
+
+            textArea.Selection = Selection.Create(textArea, 1, 8);
+
+            Assert.AreEqual(6, textArea.Caret.Offset);
+            Assert.AreEqual(1, eventCount);
+            Assert.AreEqual(1, client.Selection.Start);
+            Assert.AreEqual(8, client.Selection.End);
+        }
+
+        [Avalonia.Headless.NUnit.AvaloniaTest]
+        public void ImeClientSelectionSetterClampsSelectionToCurrentDocumentLine()
+        {
+            var textArea = CreateTextArea("first\nprefix中文suffix\nthird");
+            var line = textArea.Document.GetLineByNumber(2);
+            textArea.Caret.Offset = line.Offset + 2;
+            AttachImeClient(textArea);
+            var client = GetImeClient(textArea);
+
+            client.Selection = new TextSelection(-20, 200);
+
+            Assert.AreEqual(line.Offset, textArea.Selection.SurroundingSegment.Offset);
+            Assert.AreEqual(line.Length, textArea.Selection.SurroundingSegment.Length);
+            Assert.AreEqual(0, client.Selection.Start);
+            Assert.AreEqual(line.Length, client.Selection.End);
+        }
+
+        [Avalonia.Headless.NUnit.AvaloniaTest]
+        public void InlinePreeditDoesNotChangeNativeSurroundingSelection()
+        {
+            var textArea = CreateTextArea("first\nprefix中文suffix\nthird");
+            var line = textArea.Document.GetLineByNumber(2);
+            textArea.Caret.Offset = line.Offset + 6;
+            textArea.ImePreeditDisplayMode = ImePreeditDisplayMode.Inline;
+            AttachImeClient(textArea);
+            var client = GetImeClient(textArea);
+
+            client.SetPreeditText("zhonghuarenmingongheguo", 24);
+            ArrangeTextView(textArea, 120, 320);
+
+            Assert.AreEqual("prefix中文suffix", client.SurroundingText);
+            Assert.AreEqual(6, client.Selection.Start);
+            Assert.AreEqual(6, client.Selection.End);
+        }
+
+        [Avalonia.Headless.NUnit.AvaloniaTest]
+        public void NativeImeClearThenCommitPreservesCommittedChineseAndFollowingText()
+        {
+            var textArea = CreateTextArea("prefix中文suffix");
+            textArea.Caret.Offset = "prefix".Length;
+            textArea.ImePreeditDisplayMode = ImePreeditDisplayMode.Inline;
+            ((ILogicalScrollable)textArea.TextView).CanHorizontallyScroll = true;
+            ArrangeTextView(textArea, 160, 320);
+            AttachImeClient(textArea);
+
+            var client = GetImeClient(textArea);
+            client.SetPreeditText("zhonghuarenmingongheguo", 24);
+            ArrangeTextView(textArea, 160, 320);
+            Assert.IsTrue(textArea.HasImePreedit);
+
+            // macOS native IME clears marked text before delivering insertText.
+            client.SetPreeditText(null);
+            Assert.IsFalse(textArea.HasImePreedit);
+            RaiseTextInput(textArea, "中文");
+
+            Assert.AreEqual("prefix中文中文suffix", textArea.Document.Text);
+            var visualLine = textArea.TextView.GetOrConstructVisualLine(textArea.Document.Lines[0]);
+            var renderedText = string.Concat(visualLine.TextLines
+                .SelectMany(line => line.TextRuns)
+                .Select(run => run.Text.ToString()));
+            Assert.That(renderedText, Does.Contain("prefix中文中文suffix"));
+        }
+
+        [Avalonia.Headless.NUnit.AvaloniaTest]
+        public void NativeImeCommitThenClearPreservesCommittedChineseAndFollowingText()
+        {
+            var textArea = CreateTextArea("prefix中文suffix");
+            textArea.Caret.Offset = "prefix".Length;
+            textArea.ImePreeditDisplayMode = ImePreeditDisplayMode.Inline;
+            ((ILogicalScrollable)textArea.TextView).CanHorizontallyScroll = true;
+            ArrangeTextView(textArea, 160, 320);
+            AttachImeClient(textArea);
+
+            var client = GetImeClient(textArea);
+            client.SetPreeditText("zhonghuarenmingongheguo", 24);
+            ArrangeTextView(textArea, 160, 320);
+            RaiseTextInput(textArea, "中文");
+            client.SetPreeditText(null);
+
+            Assert.AreEqual("prefix中文中文suffix", textArea.Document.Text);
+            Assert.IsFalse(textArea.HasImePreedit);
+        }
+
+        [Avalonia.Headless.NUnit.AvaloniaTest]
         public void CommitOnClickFallbackInsertsAtOldCaretAndSuppressesOneDuplicate()
         {
             var textArea = CreateTextArea("ab");
@@ -609,6 +817,13 @@ namespace AvaloniaEdit.Tests.Editing
         {
             var field = typeof(TextArea).GetField("_imClient", BindingFlags.Instance | BindingFlags.NonPublic);
             return (TextInputMethodClient)field.GetValue(textArea);
+        }
+
+        private static void AttachImeClient(TextArea textArea)
+        {
+            var client = GetImeClient(textArea);
+            var method = client.GetType().GetMethod("SetTextArea", BindingFlags.Instance | BindingFlags.Public);
+            method.Invoke(client, new object[] { textArea });
         }
 
         private static void ArrangeTextView(TextArea textArea, double width, double height)

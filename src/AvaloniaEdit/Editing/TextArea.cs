@@ -1424,6 +1424,13 @@ namespace AvaloniaEdit.Editing
                     }
 
                     var rect = _textArea.Caret.CalculateCaretRectangle();
+                    if (HasPreedit
+                        && _textArea.ImePreeditDisplayMode == ImePreeditDisplayMode.Inline
+                        && _textArea.TextView.TryGetImePreeditCursorRectangle(out var preeditRect))
+                    {
+                        rect = preeditRect;
+                    }
+
                     var scrollOffset = _textArea.TextView.ScrollOffset;
                     return rect.WithX(rect.X - scrollOffset.X).WithY(rect.Y - scrollOffset.Y);
                 }
@@ -1500,6 +1507,9 @@ namespace AvaloniaEdit.Editing
                 if (_textArea != null)
                 {
                     _textArea.Caret.PositionChanged -= Caret_PositionChanged;
+                    _textArea.SelectionChanged -= TextArea_SelectionChanged;
+                    _textArea.TextView.VisualLinesChanged -= TextView_VisualStateChanged;
+                    _textArea.TextView.ScrollOffsetChanged -= TextView_VisualStateChanged;
                 }
 
                 _textArea = textArea;
@@ -1507,6 +1517,9 @@ namespace AvaloniaEdit.Editing
                 if (_textArea != null)
                 {
                     _textArea.Caret.PositionChanged += Caret_PositionChanged;
+                    _textArea.SelectionChanged += TextArea_SelectionChanged;
+                    _textArea.TextView.VisualLinesChanged += TextView_VisualStateChanged;
+                    _textArea.TextView.ScrollOffsetChanged += TextView_VisualStateChanged;
                 }
 
                 RaiseTextViewVisualChanged();
@@ -1535,6 +1548,8 @@ namespace AvaloniaEdit.Editing
                     // disappears so both the extent and the scroll offset are recalculated.
                     _textArea?.TextView.Redraw();
                 }
+
+                RaiseCursorRectangleChanged();
             }
 
             public void RequestImeReset() => RequestReset();
@@ -1547,6 +1562,17 @@ namespace AvaloniaEdit.Editing
 
                 // TextArea.CaretPositionChanged refreshes the visual representation. Keep this
                 // client callback focused on the native IME state notifications.
+            }
+
+            private void TextArea_SelectionChanged(object sender, EventArgs e)
+            {
+                RaiseSelectionChanged();
+            }
+
+            private void TextView_VisualStateChanged(object sender, EventArgs e)
+            {
+                RefreshInlineCursor();
+                RaiseCursorRectangleChanged();
             }
 
             public override void SetPreeditText(string text)
@@ -1599,6 +1625,7 @@ namespace AvaloniaEdit.Editing
                     _preeditLayer?.Clear();
                     _preeditGenerator?.Clear();
                     ShowCaretIfFocused();
+                    RaiseCursorRectangleChanged();
                     return;
                 }
 
@@ -1607,6 +1634,7 @@ namespace AvaloniaEdit.Editing
                     _preeditLayer?.Clear();
                     _preeditGenerator?.Clear();
                     ShowCaretIfFocused();
+                    RaiseCursorRectangleChanged();
                     return;
                 }
 
@@ -1615,6 +1643,8 @@ namespace AvaloniaEdit.Editing
                     _preeditLayer?.Clear();
                     _preeditGenerator?.SetPreedit(_preeditText, _preeditCursorOffset, _preeditClauses, forceRedraw: true);
                     _textArea.Caret.Hide();
+                    RefreshInlineCursor();
+                    RaiseCursorRectangleChanged();
                     return;
                 }
 
@@ -1625,6 +1655,26 @@ namespace AvaloniaEdit.Editing
                     ?? _textArea.TextView.GetValue(TemplatedControl.ForegroundProperty) as IBrush;
 
                 _preeditLayer?.SetPreedit(_preeditText, caretRect, foreground, _preeditCursorOffset, _preeditClauses);
+                RaiseCursorRectangleChanged();
+            }
+
+            private void RefreshInlineCursor()
+            {
+                if (_preeditLayer == null)
+                    return;
+
+                if (_textArea != null
+                    && HasPreedit
+                    && _textArea.ImePreeditDisplayMode == ImePreeditDisplayMode.Inline
+                    && _textArea.TextView.TryGetImePreeditCursorRectangle(out var rectangle))
+                {
+                    var foreground = _textArea.Caret.CaretBrush
+                        ?? _textArea.TextView.GetValue(TemplatedControl.ForegroundProperty) as IBrush;
+                    _preeditLayer.SetInlineCursor(rectangle, foreground);
+                    return;
+                }
+
+                _preeditLayer.ClearInlineCursor();
             }
 
             private void ShowCaretIfFocused()

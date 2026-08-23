@@ -2066,7 +2066,7 @@ namespace AvaloniaEdit.RichTextInput
             {
                 using (var stream = new MemoryStream())
                 {
-                    bitmap.Save(stream);
+                    bitmap.Save(stream, PngBitmapEncoderOptions.Default);
                     var bytes = stream.ToArray();
                     if (bytes.Length > 0
                         && bytes.Length <= maxBytes
@@ -2127,7 +2127,7 @@ namespace AvaloniaEdit.RichTextInput
 
                     using (var stream = new MemoryStream())
                     {
-                        renderTarget.Save(stream);
+                        renderTarget.Save(stream, PngBitmapEncoderOptions.Default);
                         bytes = stream.ToArray();
                     }
 
@@ -2154,7 +2154,7 @@ namespace AvaloniaEdit.RichTextInput
             var fileName = Path.Combine(Path.GetTempPath(), "AvaloniaEdit.RichTextInput." + Guid.NewGuid().ToString("N") + ".png");
             try
             {
-                bitmap.Save(fileName);
+                bitmap.Save(fileName, PngBitmapEncoderOptions.Default);
                 bytes = File.ReadAllBytes(fileName);
                 return bytes.Length > 0
                     && bytes.Length <= maxBytes

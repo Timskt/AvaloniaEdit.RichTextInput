@@ -4,7 +4,7 @@ This document describes the complete IME preedit/composition implementation in `
 
 This copy targets the **Avalonia 12 branch**:
 
-- Avalonia: `12.0.0`
+- Avalonia: `12.1.1`
 - Target frameworks: `.NET 8` and `.NET 10`
 - Related branch: `ava12-feat`
 
@@ -550,10 +550,15 @@ After starting the demo, use this sequence to verify the feature manually:
 The current branch uses:
 
 ```text
-Avalonia 12.0.0
+Avalonia 12.1.1
 TargetFramework: net8.0; net10.0
 Solution: AvaloniaEdit.slnx
 ```
+
+The Avalonia 12 branch requires at least `12.1.1`. That release includes native macOS
+IME fixes for `replacementRange`, surrounding-text selection synchronization, and preedit
+state across focus changes. Staying on `12.0.0` can make Apple Simplified Pinyin show the
+phonetic composition while its candidate or converted Chinese text remains invisible after wrapping.
 
 Build with:
 
